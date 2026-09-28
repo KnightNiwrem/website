@@ -16,8 +16,6 @@
     "test:live:build": "deno task build && deno -A npm:vitepress build tests/live-code/fixture",
     "test:live": "deno -A npm:@playwright/test test -c tests/live-code/playwright.config.ts",
     "test:live:browser": "deno -A npm:@playwright/test install chromium",
-    "test:live:cors": "deno run -A tests/live-code/cors-probe.ts",
-    "test:live:measure": "deno run -A tests/live-code/measure.ts",
     "lint": "deno lint && deno -ERS --allow-scripts npm:markdownlint-cli2 \"./docs/**/*.md\" \"#./docs/ref\"",
     "sitemap": "deno -R=docs/.vitepress/dist -W=docs/.vitepress/dist/sitemap.xml jsr:@knorpelsenf/sitemap@1.2.4/cli -b https://grammy.dev -r docs/.vitepress/dist --clean",
     "links:check": "deno --reload -E=DEBUG,GITHUB_API_ROOT,GITHUB_TOKEN -NR=docs,. --allow-run=deno https://raw.githubusercontent.com/grammyjs/link-checker/main/website_cli.ts --clean-url docs",
@@ -26,9 +24,7 @@
   "imports": {
     "@jridgewell/trace-mapping": "npm:@jridgewell/trace-mapping@0.3.31",
     "@playwright/test": "npm:@playwright/test@1.63.0",
-    "@std/path": "jsr:@std/path@1.1.6",
     "@types/node": "npm:@types/node@24.19.0",
-    "esbuild": "npm:esbuild@0.21.5",
     "es-module-lexer": "npm:es-module-lexer@3.0.2",
     "grammy": "npm:grammy@1.46.0",
     "magic-string": "npm:magic-string@0.30.21",
