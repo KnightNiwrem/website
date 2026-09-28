@@ -2,10 +2,17 @@ export interface Example {
   source: string;
   language: string;
   label: string;
+  format: "module" | "commonjs";
 }
 
 export type WorkerCommand =
-  | { type: "run"; source: string; language: string; token: string }
+  | {
+    type: "run";
+    source: string;
+    language: string;
+    format: Example["format"];
+    token: string;
+  }
   | { type: "stop" };
 
 export type WorkerEvent =

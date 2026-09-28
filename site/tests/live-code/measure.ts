@@ -27,6 +27,11 @@ const entries = {
     comparison,
   ],
   "Sucrase compiler": ['export {transform} from "sucrase";', site],
+  "ES module lexer (JS build)": [
+    'export {parse} from "es-module-lexer/minimal/js";',
+    site,
+  ],
+  "Source rewriting + maps": ['export {default} from "magic-string";', site],
   "Source map reader": [
     'export {TraceMap,originalPositionFor} from "@jridgewell/trace-mapping";',
     site,

@@ -115,6 +115,146 @@ test("initial load and activation do not execute or load runtime", async ({ page
   await expect(block.getByRole("status")).toHaveText("Ready");
 });
 
+test("static, editable, copied and reset source match for every alternative", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  const block = await activate(page);
+  const originals = await block.locator("pre > code").allTextContents();
+  for (const [index, label] of ["TypeScript", "JavaScript", "Deno"].entries()) {
+    await block.getByRole("button", { name: label, exact: true }).click();
+    const source = block.locator("textarea:visible");
+    await expect(source).toHaveValue(originals[index]);
+    await block.getByRole("button", { name: "Copy source" }).click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+      originals[index],
+    );
+    await source.fill("// an edit");
+    await block.getByRole("button", { name: "Reset source" }).click();
+    await expect(source).toHaveValue(originals[index]);
+  }
+});
+
+for (
+  const [language, index] of [["TypeScript", 0], ["JavaScript", 2]] as const
+) {
+  test(`${language} retains native ESM, top-level await and module namespaces`, async ({ page }) => {
+    await telegram(page);
+    const block = await activate(page, fixture, index);
+    await block.locator("textarea:visible").fill(
+      `console.log("Hoisted import", typeof Bot);
+import { Bot } from "grammy";
+import * as namespace from "npm:grammy";
+export { Bot as TelegramBot } from "grammy/web";
+export * from "npm:grammy@1.46.0";
+console.log("Scope", this === undefined, typeof arguments, typeof require, typeof module, typeof exports);
+console.log("Before await");
+await new Promise(resolve => setTimeout(resolve, 500));
+const name = "grammy";
+const loaded = await import(name);
+console.log("After await", loaded === namespace, loaded.Bot === Bot, Object.prototype.toString.call(loaded));
+console.log("Module URL", import.meta.url.startsWith("blob:"));
+const rejected = import("node:fs");
+console.log("Import promise", rejected instanceof Promise);
+await rejected.catch(error => console.log(error.message));
+setTimeout(async () => console.log("Later import", (await import("grammy/web")) === loaded), 20);`,
+    );
+    await block.getByRole("button", { name: "Run", exact: true }).click();
+    const output = block.getByLabel("Run output");
+    await expect(output).toContainText("Before await");
+    await expect(block.getByRole("status")).toHaveText("Starting…");
+    await expect(block.getByRole("status")).toHaveText("Code executed");
+    await expect(output).toContainText("Hoisted import function");
+    await expect(output).toContainText(
+      "Scope true undefined undefined undefined undefined",
+    );
+    await expect(output).toContainText("After await true true [object Module]");
+    await expect(output).toContainText("Module URL true");
+    await expect(output).toContainText("Import promise true");
+    await expect(output).toContainText('Unsupported dependency "node:fs"');
+    await expect(output).toContainText("Later import true");
+    await block.getByRole("button", { name: "Stop", exact: true }).click();
+  });
+}
+
+test("native module linking, strict mode and read-only imports reject invalid ESM", async ({ page }) => {
+  await telegram(page);
+  const block = await activate(page);
+  for (
+    const [source, diagnostic] of [
+      [
+        'import { MissingExport } from "grammy"; console.log("body ran");',
+        "MissingExport",
+      ],
+      ['import { Bot } from "grammy"; Bot = class {};', "TypeError"],
+      ["undeclaredName = 1;", "ReferenceError"],
+      ["return 1;", "SyntaxError"],
+      ["export const duplicate = 1; export { duplicate };", "SyntaxError"],
+    ]
+  ) {
+    await block.locator("textarea:visible").fill(source);
+    await block.getByRole("button", { name: "Run", exact: true }).click();
+    await expect(block.getByRole("status")).toHaveText("Error");
+    await expect(block.getByLabel("Run output")).toContainText(diagnostic);
+    await expect(block.getByLabel("Run output")).not.toContainText("body ran");
+  }
+});
+
+test("CommonJS stays explicit and synchronous, with native dynamic import", async ({ page }) => {
+  await telegram(page);
+  const block = await activate(page, fixture, 1);
+  await block.locator("textarea:visible").fill(
+    `const { Bot } = require("grammy");
+console.log("CJS scope", this === module.exports, exports === module.exports, typeof require, typeof arguments);
+(async () => console.log("Dynamic import", (await import("npm:grammy")).Bot === Bot))();`,
+  );
+  await block.getByRole("button", { name: "Run", exact: true }).click();
+  await expect(block.getByRole("status")).toHaveText("Code executed");
+  await expect(block.getByLabel("Run output")).toContainText(
+    "CJS scope true true function object",
+  );
+  await expect(block.getByLabel("Run output")).toContainText(
+    "Dynamic import true",
+  );
+  await block.getByRole("button", { name: "Stop", exact: true }).click();
+  await block.locator("textarea:visible").fill(
+    'console.log("body ran"); await Promise.resolve();',
+  );
+  await block.getByRole("button", { name: "Run", exact: true }).click();
+  await expect(block.getByRole("status")).toHaveText("Error");
+  await expect(block.getByLabel("Run output")).toContainText("SyntaxError");
+  await expect(block.getByLabel("Run output")).not.toContainText("body ran");
+});
+
+test("parsed specifiers and TypeScript erasure preserve original error columns", async ({ page }) => {
+  await telegram(page);
+  const block = await activate(page);
+  const source =
+    'import { Bot as ExampleBot } from /* comment */ "gr\\u0061mmy"; const x: number = 1; throw Error("mapped");';
+  await block.locator("textarea:visible").fill(source);
+  await block.getByRole("button", { name: "Run", exact: true }).click();
+  await expect(block.getByLabel("Run output")).toContainText(
+    `example.ts:1:${source.indexOf('Error("mapped")') + 1}`,
+  );
+});
+
+test("Stop cancels a module suspended at top-level await and reruns are fresh", async ({ page }) => {
+  const calls = await telegram(page);
+  const block = await activate(page);
+  await block.locator("textarea:visible").fill(`import { Api } from "grammy";
+console.log("Waiting");
+await new Promise(resolve => setTimeout(resolve, 1000));
+await new Api("").sendMessage(123, "Must not send");`);
+  await block.getByRole("button", { name: "Run", exact: true }).click();
+  await expect(block.getByLabel("Run output")).toContainText("Waiting");
+  await block.getByRole("button", { name: "Stop", exact: true }).click();
+  await expect(block.getByRole("status")).toHaveText("Stopped");
+  await page.waitForTimeout(1100);
+  expect(calls.some((call) => call.method === "sendMessage")).toBe(false);
+  await block.getByRole("button", { name: "Run", exact: true }).click();
+  await expect(block.getByLabel("Run output")).toContainText("Waiting");
+  await expect(block.getByRole("status")).toHaveText("Starting…");
+  await block.getByRole("button", { name: "Stop", exact: true }).click();
+});
+
 test("API-only examples keep nested JSON values and remain stoppable", async ({ page }) => {
   const calls = await telegram(page);
   const block = await activate(page);
@@ -199,8 +339,16 @@ test("existing webhook refuses startup without mutations", async ({ page }) => {
   expect(calls.map((c) => c.method)).toEqual(["getWebhookInfo"]);
 });
 
-for (const allowEval of [true, false]) {
-  test(`worker response CSP: unsafe-eval ${allowEval ? "allowed" : "blocked"}`, async ({ page }) => {
+for (
+  const [label, permissions, works] of [
+    ["TypeScript", "blob:", true],
+    ["Deno", "blob:", true],
+    ["TypeScript", "", false],
+    ["JavaScript", "blob: 'unsafe-eval'", true],
+    ["JavaScript", "blob:", false],
+  ] as const
+) {
+  test(`worker response CSP: ${label} with ${permissions || "self only"}`, async ({ page }) => {
     await telegram(page);
     await page.route("**/runner.worker-*.js", async (route) => {
       const response = await route.fetch();
@@ -208,22 +356,24 @@ for (const allowEval of [true, false]) {
         response,
         headers: {
           ...response.headers(),
-          "content-security-policy": `default-src 'none'; script-src 'self'${
-            allowEval ? " 'unsafe-eval'" : ""
-          }; connect-src https://api.telegram.org`,
+          "content-security-policy":
+            `default-src 'none'; script-src 'self' ${permissions}; connect-src https://api.telegram.org`,
         },
       });
     });
     const block = await activate(page);
+    await block.getByRole("button", { name: label, exact: true }).click();
     await block.getByRole("button", { name: "Run", exact: true }).click();
     await expect(block.getByRole("status")).toHaveText(
-      allowEval ? "Running" : "Error",
+      works ? "Running" : "Error",
     );
-    if (allowEval) {
+    if (works) {
       await block.getByRole("button", { name: "Stop", exact: true }).click();
-    } else {await expect(block.getByLabel("Run output")).toContainText(
+    } else if (label === "JavaScript") {
+      await expect(block.getByLabel("Run output")).toContainText(
         "unsafe-eval",
-      );}
+      );
+    }
   });
 }
 

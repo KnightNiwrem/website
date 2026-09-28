@@ -63,7 +63,8 @@ async function start() {
   await run?.stop();
   if (disposed || !busy.value) return;
   revision.value = { index: active.value, source: sources.value[active.value] };
-  run = createRun(revision.value.source, props.examples[active.value].language, token.value.trim(), receive);
+  run = createRun(revision.value.source, props.examples[active.value].language,
+    props.examples[active.value].format, token.value.trim(), receive);
   void run.start();
 }
 async function stop() {

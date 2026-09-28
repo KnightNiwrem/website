@@ -1,10 +1,11 @@
 import { redact } from "./protocol.ts";
-import type { WorkerCommand, WorkerEvent } from "./protocol.ts";
+import type { Example, WorkerCommand, WorkerEvent } from "./protocol.ts";
 
 /** One worker per run. Web Locks prevent same-token competition across blocks/tabs. */
 export function createRun(
   source: string,
   language: string,
+  format: Example["format"],
   token: string,
   receive: (event: WorkerEvent) => void,
 ) {
@@ -91,7 +92,13 @@ export function createRun(
             void stop();
           };
           worker.postMessage(
-            { type: "run", source, language, token } satisfies WorkerCommand,
+            {
+              type: "run",
+              source,
+              language,
+              format,
+              token,
+            } satisfies WorkerCommand,
           );
           await released;
         },

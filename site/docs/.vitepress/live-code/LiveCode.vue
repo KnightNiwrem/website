@@ -2,6 +2,8 @@
 import { onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
 import type { Example } from "./protocol.ts";
 
+// Module semantics are explicit author metadata, never guessed from source text.
+const props = defineProps<{ commonjs?: boolean | string[] }>();
 const root = ref<HTMLElement>();
 const ready = ref(false);
 const loading = ref(false);
@@ -20,12 +22,17 @@ async function activate() {
     // The wrapper works on any page and never assumes a particular bot variable.
     const labels = root.value!.querySelectorAll(".vp-code-group .tabs label");
     examples.value = Array.from(root.value!.querySelectorAll("pre > code"))
-      .map((code, i) => ({
-        source: code.textContent ?? "",
-        language: code.closest("[class*='language-']")?.className
+      .map((code, i): Example => {
+        const label = labels[i]?.textContent?.trim() || `Example ${i + 1}`;
+        return {
+          source: code.textContent ?? "",
+          language: code.closest("[class*='language-']")?.className
             .match(/language-(\w+)/)?.[1] ?? "ts",
-        label: labels[i]?.textContent?.trim() || `Example ${i + 1}`,
-      }));
+          label,
+          format: props.commonjs === true || (Array.isArray(props.commonjs) && props.commonjs.includes(label))
+            ? "commonjs" : "module",
+        };
+      });
     if (!examples.value.length) throw new Error("No code fences found.");
     const module = await import("./LiveEditor.vue");
     if (!disposed) editor.value = module.default;

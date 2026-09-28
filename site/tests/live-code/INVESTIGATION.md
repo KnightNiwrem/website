@@ -6,7 +6,7 @@ The prototype preserves the static site and executes the visitor's edited source
 Keep this as a draft pending real message-loop and physical-phone verification.
 
 The necessary custom pieces are a fence wrapper, editor controls, source preparation, a worker controller, and a small grammY adapter for credentials, webhook protection, and shutdown.
-These total approximately 650 lines including Vue templates and styles; tests and research utilities are separate.
+These total approximately 775 lines including Vue templates and styles; tests and research utilities are separate.
 There is no package installer, filesystem, server execution, Node emulation, or Telegram emulator in the product.
 
 **Repository findings and scope**
@@ -39,6 +39,9 @@ example.start();
 ````
 
 For a group, put the existing `::: code-group` and its fences inside the wrapper.
+JavaScript and TypeScript fences run as ES modules by default.
+For a CommonJS fence, use `<LiveCode commonjs>`; for mixed alternatives, explicitly select CommonJS tabs by label, as in the homepage's `<LiveCode :commonjs="['JavaScript']">`.
+This metadata selects the execution format without changing displayed, edited, copied, or reset source, and the runner never guesses format from source text or assumes that all JavaScript is CommonJS.
 Keep blank lines around the component tags.
 The static fences remain the source of truth, including normal VitePress highlighting, tabs, line numbers, and copy buttons.
 Activation reads their rendered code text and labels; then each alternative retains its own editor and history.
@@ -80,6 +83,8 @@ Dependency builds are informative breakdowns; their compressed sizes are not add
 | Selected Prism layout + token styles (CSS)                       |   2.62 |    0.94 |      0.77 |
 | Comparable minimal CodeMirror + JS/TS, including injected styles | 407.25 |  138.23 |    117.57 |
 | Sucrase compiler                                                 | 205.94 |   47.39 |     40.15 |
+| ES module lexer, minimal JavaScript build                        |  26.15 |    7.63 |      6.72 |
+| Source rewriting and map generation                              |  17.85 |    5.53 |      4.99 |
 | Source map reader                                                |   6.37 |    2.96 |      2.70 |
 | grammY browser namespace                                         | 107.16 |   27.29 |     23.35 |
 
@@ -88,10 +93,10 @@ Actual production output, rounded:
 | Transfer stage           | Gzip KB | Notes                                                                                |
 | ------------------------ | ------: | ------------------------------------------------------------------------------------ |
 | Baseline initial JS/CSS  |   87.07 | HTML-declared entry, preloads, and styles                                            |
-| Prototype initial JS/CSS |   90.12 | Increment approximately 3.05 KB; no editor JS, compiler, grammY, or worker execution |
-| Edit and run activation  |    8.06 | Editor JS and Vue controls/controller                                                |
-| Run: worker entry        |    0.81 | Worker lifecycle and sanitized messages                                              |
-| Run: preparation         |   49.38 | Compiler, import registry, source map handling                                       |
+| Prototype initial JS/CSS |   90.21 | Increment approximately 3.14 KB; no editor JS, compiler, grammY, or worker execution |
+| Edit and run activation  |    8.07 | Editor JS and Vue controls/controller                                                |
+| Run: worker entry        |    1.06 | Worker lifecycle, module loading, and sanitized messages                             |
+| Run: preparation         |   62.39 | Compiler, parsed import resolution, source rewriting, and map handling               |
 | Run: runtime             |   28.75 | Real grammY plus browser adapter                                                     |
 
 VitePress 1.6.4 deliberately combines CSS into one stylesheet, so the editor's small styles arrive initially.
@@ -101,19 +106,30 @@ The browser regression test verifies editor JS is absent before activation and r
 
 **Execution and lifecycle**
 
-Sucrase parses and transpiles TypeScript and ESM imports to CommonJS; it also rewrites dynamic imports to the supplied `require` registry.
+ESM examples execute as native browser modules, with no CommonJS conversion or function wrapper.
+Sucrase removes TypeScript syntax with modern JavaScript transformations disabled; it preserves import/export declarations, and JavaScript gets no language transforms.
+The pure-JavaScript build of **es-module-lexer 3.0.2** identifies import specifiers, and **magic-string 0.30.21** rewrites their URLs while preserving source mappings.
+Static imports and re-exports resolve to one in-memory ES module exposing the bundled browser adapter's named exports.
+Dynamic imports use a generated resolver that calls native `import()`, supporting computed specifiers, options, asynchronous rejection, and the same module namespace as static imports.
+The facade's one-use handoff is confined to the fresh worker and removed before evaluating the example; opaque blob URLs remain alive for later dynamic imports and are revoked on graceful Stop.
 Accepted runtime specifiers are exactly `grammy`, `grammy/web`, `npm:grammy`, and `npm:grammy@1.46.0`.
 Other dependencies fail with an explicit diagnostic; there is no regex matching a particular import line, network package resolution, Node runtime, or Deno runtime.
 Type-only imports disappear during compilation.
-Top-level await, ordinary CommonJS, aliased imports, parse errors, and asynchronous errors are covered.
+Native module linking, strict mode, top-level `this`, import hoisting, read-only import bindings, missing-export errors, re-exports, `import.meta`, and top-level `await` are preserved and covered in browser tests.
+`import.meta.url` identifies an in-memory blob module, not a filesystem path; the dependency registry does not support arbitrary files or multi-file module graphs.
+Only explicitly marked CommonJS examples use a synchronous `Function` wrapper with `require`, `module`, and `exports`, and top-level `this` bound to `module.exports`.
+Top-level `await` is intentionally a syntax error in that mode, as in a `.cjs` file; ESM examples suspend and resume through the native loader, including `await bot.start()`.
+The compiler output is never substituted into the editor or clipboard.
+Tests check equality between static, editable, copied, and reset source for every homepage alternative, and mapped error columns after both TypeScript removal and import rewriting.
 Sucrase is a transpiler, not a type checker; the editor highlights syntax and supplies undo, not IDE completion or TypeScript diagnostics.
 See the [Sucrase transform documentation](https://github.com/alangpierce/sucrase#transforms).
+The parser's [minimal JavaScript build](https://github.com/guybedford/es-module-lexer#minimal-build) requires no WebAssembly initialization or evaluation permission.
 
 The pinned npm package exports `grammy/web` as `out/web.mjs`, and the worker imports that explicit browser distribution.
 The release commit is `055a5a440f04d0b9fd5fd75a6d14dac4c2b83553` ([grammY v1.46.0](https://github.com/grammyjs/grammY/tree/v1.46.0)).
 All code needed to compile/run is bundled with the site; source and tokens do not go to a compiler service.
-Native ESM with a parsed specifier rewrite could remove the CommonJS evaluation layer, but would still need TypeScript preparation, a strategy for the CommonJS tab, and worker-local dependency resolution.
 [Document import maps do not apply in workers](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/script/type/importmap).
+Native loading makes browser module semantics available without relying on document import maps.
 
 Main-thread evaluation would be slightly shorter but could freeze Run/Stop and the entire documentation UI.
 A dedicated worker provides a tested hard-stop path for `while (true) {}` and clears its timers and resources on termination.
@@ -145,7 +161,8 @@ Stopping cannot undo a request already processed by Telegram.
 
 Tokens and edited source stay in memory; no share URL, local storage, analytics event, screenshot, trace, or HAR is created by the runner.
 Errors and bounded console messages redact the supplied token, token-shaped strings, and Telegram API URLs before reaching the UI.
-Source locations use an in-memory map and a constant source name; source maps are not put in data URLs.
+Source locations compose in-memory transformation maps and use a constant source name; source maps are not put in data URLs.
+Blob URLs contain opaque identifiers, without embedding the source or token in URL text.
 Browser developer tools can still expose network request URLs containing the token, and user-authored code can deliberately disclose it.
 
 **CORS and CSP evidence**
@@ -164,25 +181,28 @@ The implementation retains grammY's JSON transport and does not use `no-cors`.
 Telegram documents [JSON and form request encodings](https://core.telegram.org/bots/api#making-requests); the comparative form probe serializes nested values as JSON, but form encoding is not used in the product.
 
 The static worker URL needs `worker-src 'self'` if a page CSP is introduced.
-On the worker script's HTTP response, the relevant policy is `default-src 'none'; script-src 'self' 'unsafe-eval'; connect-src https://api.telegram.org`.
-The local AsyncFunction evaluation needs `unsafe-eval`; no blob worker, WASM compiler, CDN script, or cross-origin isolation is required.
-Tests apply that worker response policy and separately verify failure without `unsafe-eval`.
+On the worker script's HTTP response, ESM needs `default-src 'none'; script-src 'self' blob:; connect-src https://api.telegram.org`.
+The `blob:` permission lets the worker import modules created from edited source; the worker itself still has a static same-origin URL.
+ESM execution does not require `unsafe-eval`.
+Serving the CommonJS alternative additionally needs `'unsafe-eval'` in the worker's `script-src` for its synchronous `Function` wrapper.
+Tests exercise ESM without eval permission, rejection without blob permission, and CommonJS with and without eval permission.
+No WASM compiler, CDN script, or cross-origin isolation is required.
 The page need not allow eval for this editor/runner; any future whole-site CSP must separately accommodate VitePress and existing site integrations.
 Do not forward token-bearing blocked-request URLs to a CSP reporting service.
 See [MDN on worker CSP](https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Using_web_workers#content_security_policy).
 
 **Verification boundaries and mobile**
 
-| Check                                                 | Result                                                            |
-| ----------------------------------------------------- | ----------------------------------------------------------------- |
-| Production build and separate fixture build           | Passed                                                            |
-| Formatting, repository lint, runtime TypeScript check | Passed                                                            |
-| Production headless regression tests                  | 17 tests; isolated HTTP mocks explicitly identified in test names |
-| Authenticated getMe + webhook status in a browser     | Verified; read-only authorization                                 |
-| Actual outbound Telegram delivery                     | Unverified; not authorized                                        |
-| Genuine incoming update and handler reply             | Unverified; not authorized                                        |
-| Cessation of real Telegram work after Stop            | Unverified; lifecycle verified with mocks only                    |
-| Physical Android/iOS keyboard and app switching       | Unavailable                                                       |
+| Check                                                 | Result                                                        |
+| ----------------------------------------------------- | ------------------------------------------------------------- |
+| Production build and separate fixture build           | Passed                                                        |
+| Formatting, repository lint, runtime TypeScript check | Passed                                                        |
+| Production headless regression tests                  | 27 tests; Telegram traffic intercepted by isolated HTTP mocks |
+| Authenticated getMe + webhook status in a browser     | Verified; read-only authorization                             |
+| Actual outbound Telegram delivery                     | Unverified; not authorized                                    |
+| Genuine incoming update and handler reply             | Unverified; not authorized                                    |
+| Cessation of real Telegram work after Stop            | Unverified; lifecycle verified with mocks only                |
+| Physical Android/iOS keyboard and app switching       | Unavailable                                                   |
 
 Automation covers multiline input, punctuation and Unicode, text selection, editor undo/redo, copied source, synthetic composition events, alternative tabs, visible Run/Stop, and a 390px touch-emulated layout without horizontal overflow.
 This does not simulate an actual soft keyboard, native paste menu, selection handles, or real IME composition.

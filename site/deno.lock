@@ -17,9 +17,11 @@
     "npm:@types/node@24.19.0": "24.19.0",
     "npm:@vueuse/core@^14.3.0": "14.3.0_vue@3.5.38",
     "npm:country-flag-emoji-polyfill@~0.1.8": "0.1.8",
+    "npm:es-module-lexer@3.0.2": "3.0.2",
     "npm:esbuild@0.21.5": "0.21.5",
     "npm:grammy@1.46.0": "1.46.0",
     "npm:lazy-lottie-player@^0.0.1": "0.0.1",
+    "npm:magic-string@0.30.21": "0.30.21",
     "npm:markdownlint-cli2@~0.22.1": "0.22.1",
     "npm:prism-code-editor@5.4.0": "5.4.0",
     "npm:sass@^1.101.0": "1.101.0",
@@ -1028,6 +1030,9 @@
     "entities@7.0.1": {
       "integrity": "sha512-TWrgLOFUQTH994YUyl1yT4uyavY5nNB5muff+RtWaqNVCAK408b5ZnnbNAUEWLTCpum9w6arT70i1XdQ4UeOPA=="
     },
+    "es-module-lexer@3.0.2": {
+      "integrity": "sha512-BuIB67FngDSyQ/dpQNOZybwdEBDUGJQvOqwWr4ha/ufYiqzuEwPkKO2zLhRAgay28tStRIHUeWmszZAJo3GCOg=="
+    },
     "esbuild@0.21.5": {
       "integrity": "sha512-mg3OPMV4hXywwpoDxu3Qda5xCKQi+vCTZq8S9J/EpkhB2HzKXq4SNFZE3+NK93JYxc8VMSep+lOUSC/RVKaBqw==",
       "optionalDependencies": [
@@ -1954,9 +1959,11 @@
       "npm:@types/node@24.19.0",
       "npm:@vueuse/core@^14.3.0",
       "npm:country-flag-emoji-polyfill@~0.1.8",
+      "npm:es-module-lexer@3.0.2",
       "npm:esbuild@0.21.5",
       "npm:grammy@1.46.0",
       "npm:lazy-lottie-player@^0.0.1",
+      "npm:magic-string@0.30.21",
       "npm:markdownlint-cli2@~0.22.1",
       "npm:prism-code-editor@5.4.0",
       "npm:sass@^1.101.0",

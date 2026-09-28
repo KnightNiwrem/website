@@ -24,7 +24,7 @@ await helper.start();
 
 Another independent opt-in block checks token coordination.
 
-<LiveCode>
+<LiveCode commonjs>
 
 ```js
 const { Bot } = require("grammy");
@@ -36,3 +36,15 @@ another.start();
 </LiveCode>
 
 [Leave this page](./other)
+
+A JavaScript module uses the same native module behavior as the TypeScript example.
+
+<LiveCode>
+
+```js
+import { Api } from "grammy";
+const api = new Api("");
+console.log((await api.getMe()).username);
+```
+
+</LiveCode>
