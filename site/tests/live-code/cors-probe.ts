@@ -2,43 +2,40 @@
 // --auth-status explicitly uses BOT_TOKEN for getMe/getWebhookInfo only.
 // No mode polls or sends messages. No screenshots, traces, or HAR are recorded.
 import { chromium } from "@playwright/test";
-import { createRequire } from "node:module";
-import { createServer } from "node:http";
-import { resolve } from "node:path";
+import { resolve } from "@std/path";
+import { build } from "esbuild";
+import type { Api, GrammyError } from "grammy/web";
 
-const authenticated = process.argv.includes("--auth-status");
-const token = authenticated ? process.env.BOT_TOKEN : "";
+const authenticated = Deno.args.includes("--auth-status");
+const token = authenticated ? Deno.env.get("BOT_TOKEN") ?? "" : "";
 if (authenticated && !token) {
   throw new Error("BOT_TOKEN is required for --auth-status.");
 }
-const require = createRequire(import.meta.url);
-const viteRequire = createRequire(require.resolve("vitepress"));
-const { build } = createRequire(viteRequire.resolve("vite"))("esbuild");
 const bundle = await build({
   stdin: {
     contents: 'import {Api} from "grammy/web"; globalThis.GrammyApi = Api;',
-    resolveDir: resolve(import.meta.dirname, "../.."),
+    resolveDir: resolve(import.meta.dirname!, "../.."),
   },
   bundle: true,
   write: false,
   format: "iife",
 });
-const server = createServer((request, response) => {
-  response.setHeader(
-    "Content-Type",
-    request.url === "/probe.js" ? "text/javascript" : "text/html",
-  );
-  response.end(
-    request.url === "/probe.js"
-      ? bundle.outputFiles[0].text
-      : '<script src="/probe.js"></script>',
-  );
-});
-await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+const server = Deno.serve(
+  { hostname: "127.0.0.1", port: 0, onListen() {} },
+  (request) => {
+    const script = new URL(request.url).pathname === "/probe.js";
+    return new Response(
+      script ? bundle.outputFiles[0].text : '<script src="/probe.js"></script>',
+      {
+        headers: { "content-type": script ? "text/javascript" : "text/html" },
+      },
+    );
+  },
+);
 let browser;
 try {
   browser = await chromium.launch({
-    executablePath: process.env.GRAMMY_TEST_BROWSER || undefined,
+    executablePath: Deno.env.get("GRAMMY_TEST_BROWSER") || undefined,
   });
   const page = await browser.newPage();
   const cdp = await page.context().newCDPSession(page);
@@ -54,11 +51,14 @@ try {
       );
     }
   });
-  await page.goto(`http://127.0.0.1:${server.address().port}`);
+  await page.goto(`http://127.0.0.1:${server.addr.port}`);
   console.log(JSON.stringify(
     await page.evaluate(async ({ authenticated, token }) => {
+      const { GrammyApi } = globalThis as typeof globalThis & {
+        GrammyApi: typeof Api;
+      };
       if (authenticated) {
-        const api = new globalThis.GrammyApi(token, { timeoutSeconds: 10 });
+        const api = new GrammyApi(token, { timeoutSeconds: 10 });
         try {
           await api.getMe();
           const webhook = await api.getWebhookInfo();
@@ -70,21 +70,24 @@ try {
         } catch (error) {
           return {
             authenticatedGetMe: false,
-            errorType: error.name,
-            code: error.error_code,
+            errorType: (error as Error).name,
+            code: (error as GrammyError).error_code,
           };
         }
       }
       const results = [];
       for (const encoding of ["json", "form"]) {
         let response;
-        const api = new globalThis.GrammyApi(
+        const api = new GrammyApi(
           "123456789:INVALID_DEDICATED_CORS_PROBE",
           {
             timeoutSeconds: 10,
-            fetch: async (url, init) => {
+            fetch: async (
+              url: Parameters<typeof fetch>[0],
+              init?: RequestInit,
+            ) => {
               if (encoding === "form") {
-                const payload = JSON.parse(init.body);
+                const payload = JSON.parse(String(init?.body));
                 init = {
                   ...init,
                   headers: {},
@@ -116,8 +119,8 @@ try {
           results.push({
             encoding,
             response,
-            errorType: error.name,
-            code: error.error_code,
+            errorType: (error as Error).name,
+            code: (error as GrammyError).error_code,
           });
         }
       }
@@ -129,8 +132,8 @@ try {
   console.error(
     "Browser probe failed; details suppressed to protect credentials.",
   );
-  process.exitCode = 1;
+  Deno.exitCode = 1;
 } finally {
   await browser?.close();
-  server.close();
+  await server.shutdown();
 }

@@ -1,16 +1,14 @@
-// Usage: node tests/live-code/measure.mjs /tmp/grammy-live-research [/path/to/baseline/dist]
+// Usage: deno task test:live:measure /tmp/grammy-live-research [/path/to/baseline/dist]
 // The comparison packages are intentionally installed outside the website.
-import { createRequire } from "node:module";
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import { relative, resolve } from "@std/path";
+import { build } from "esbuild";
+// Deno supplies node:zlib; no Node executable is needed for compression.
 import { brotliCompressSync, gzipSync } from "node:zlib";
 
-const require = createRequire(import.meta.url);
-const viteRequire = createRequire(require.resolve("vitepress"));
-const { build } = createRequire(viteRequire.resolve("vite"))("esbuild");
-const site = resolve(import.meta.dirname, "../..");
-const comparison = resolve(process.argv[2]);
-const size = (bytes) => ({
+if (!Deno.args[0]) throw new Error("Pass the comparison dependency directory.");
+const site = resolve(import.meta.dirname!, "../..");
+const comparison = resolve(Deno.args[0]);
+const size = (bytes: Uint8Array) => ({
   raw: bytes.length,
   gzip: gzipSync(bytes, { level: 9 }).length,
   brotli: brotliCompressSync(bytes).length,
@@ -59,10 +57,10 @@ for (const [name, [contents, resolveDir]] of Object.entries(entries)) {
     }),
   );
 }
-function files(root, path = root) {
-  return readdirSync(path).flatMap((name) => {
-    const file = resolve(path, name);
-    return statSync(file).isDirectory() ? files(root, file) : [file];
+function files(path: string): string[] {
+  return Array.from(Deno.readDirSync(path)).flatMap((entry) => {
+    const file = resolve(path, entry.name);
+    return entry.isDirectory ? files(file) : [file];
   });
 }
 const dist = resolve(site, "docs/.vitepress/dist");
@@ -72,13 +70,16 @@ for (
   )
 ) {
   console.log(
-    JSON.stringify({ name: relative(dist, file), ...size(readFileSync(file)) }),
+    JSON.stringify({
+      name: relative(dist, file),
+      ...size(Deno.readFileSync(file)),
+    }),
   );
 }
 // Initial HTML declares its styles, entry module, and modulepreloads. Dynamic
 // page-prefetching is excluded. Compress each transfer independently.
-function initial(root) {
-  const html = readFileSync(resolve(root, "index.html"), "utf8");
+function initial(root: string) {
+  const html = Deno.readTextFileSync(resolve(root, "index.html"));
   const names = new Set(
     Array.from(
       html.matchAll(/(?:href|src)="(\/assets\/[^" ]+\.(?:js|css))"/g),
@@ -87,19 +88,19 @@ function initial(root) {
   );
   const total = { raw: 0, gzip: 0, brotli: 0 };
   for (const name of names) {
-    const n = size(readFileSync(resolve(root, `.${name}`)));
-    for (const key of Object.keys(total)) total[key] += n[key];
+    const n = size(Deno.readFileSync(resolve(root, `.${name}`)));
+    for (const key of ["raw", "gzip", "brotli"] as const) total[key] += n[key];
   }
   return { files: names.size, ...total };
 }
 console.log(
   JSON.stringify({ name: "initial page JS + CSS", ...initial(dist) }),
 );
-if (process.argv[3]) {
+if (Deno.args[1]) {
   console.log(
     JSON.stringify({
       name: "baseline initial page JS + CSS",
-      ...initial(resolve(process.argv[3])),
+      ...initial(resolve(Deno.args[1])),
     }),
   );
 }

@@ -67,31 +67,32 @@ The prototype therefore leaves the Markdown pipeline intact.
 
 **Measured costs**
 
-Decimal KB, minified browser bundles, gzip level 9 and Brotli default compression.
+Decimal KB, minified browser bundles, gzip level 9 and Brotli default compression using Deno 2.9.6.
+Compression implementations can produce slightly different byte counts across runtimes.
 The isolated comparison uses esbuild 0.21.5, ES2022, and equivalent editing/highlighting/history scope.
 CodeMirror package versions: view 6.43.13, state 6.7.6, commands 6.11.1, language 6.12.4, lang-javascript 6.2.5.
 Dependency builds are informative breakdowns; their compressed sizes are not additive predictions of Rollup output.
 
 | Isolated dependency build                                        | Raw KB | Gzip KB | Brotli KB |
 | ---------------------------------------------------------------- | -----: | ------: | --------: |
-| Prism core + history                                             |  10.90 |    5.40 |      4.88 |
-| Selected Prism + JS/TS + history (JS)                            |  16.64 |    7.51 |      6.83 |
-| Selected Prism layout + token styles (CSS)                       |   2.62 |    0.93 |      0.77 |
-| Comparable minimal CodeMirror + JS/TS, including injected styles | 407.25 |  138.65 |    117.63 |
-| Sucrase compiler                                                 | 205.94 |   47.41 |     40.18 |
+| Prism core + history                                             |  10.90 |    5.39 |      4.88 |
+| Selected Prism + JS/TS + history (JS)                            |  16.64 |    7.47 |      6.83 |
+| Selected Prism layout + token styles (CSS)                       |   2.62 |    0.94 |      0.77 |
+| Comparable minimal CodeMirror + JS/TS, including injected styles | 407.25 |  138.23 |    117.57 |
+| Sucrase compiler                                                 | 205.94 |   47.39 |     40.15 |
 | Source map reader                                                |   6.37 |    2.96 |      2.70 |
-| grammY browser namespace                                         | 107.16 |   27.18 |     23.31 |
+| grammY browser namespace                                         | 107.16 |   27.29 |     23.35 |
 
 Actual production output, rounded:
 
-| Transfer stage           |            Gzip KB | Notes                                                                                |
-| ------------------------ | -----------------: | ------------------------------------------------------------------------------------ |
-| Baseline initial JS/CSS  |              86.89 | HTML-declared entry, preloads, and styles                                            |
-| Prototype initial JS/CSS |              89.91 | Increment approximately 3.02 KB; no editor JS, compiler, grammY, or worker execution |
-| Edit and run activation  |               8.09 | Editor JS and Vue controls/controller                                                |
-| Run: worker entry        |               0.81 | Worker lifecycle and sanitized messages                                              |
-| Run: preparation         |              49.44 | Compiler, import registry, source map handling                                       |
-| Run: runtime             | Approximately 28.6 | Real grammY plus browser adapter                                                     |
+| Transfer stage           | Gzip KB | Notes                                                                                |
+| ------------------------ | ------: | ------------------------------------------------------------------------------------ |
+| Baseline initial JS/CSS  |   87.07 | HTML-declared entry, preloads, and styles                                            |
+| Prototype initial JS/CSS |   90.12 | Increment approximately 3.05 KB; no editor JS, compiler, grammY, or worker execution |
+| Edit and run activation  |    8.06 | Editor JS and Vue controls/controller                                                |
+| Run: worker entry        |    0.81 | Worker lifecycle and sanitized messages                                              |
+| Run: preparation         |   49.38 | Compiler, import registry, source map handling                                       |
+| Run: runtime             |   28.75 | Real grammY plus browser adapter                                                     |
 
 VitePress 1.6.4 deliberately combines CSS into one stylesheet, so the editor's small styles arrive initially.
 The initial increase also includes extra Vue helpers and a larger homepage lean chunk because the fences are now a component slot.
@@ -196,18 +197,18 @@ There is no background-hosting promise, visibility-triggered stop, or service-wo
 
 **Reproduction**
 
-From `site/`, using Deno 2.9.6 and Node 24.21.0 in this investigation:
+From `site/`, using Deno 2.9.6:
 
 ```sh
 deno ci
 deno task genapi
 deno task test:live:build
-node node_modules/@playwright/test/cli.js install chromium
+deno task test:live:browser
 deno task test:live
-deno check docs/.vitepress/live-code/*.ts
+deno check docs/.vitepress/live-code/*.ts tests/live-code/*.ts
 deno fmt --check
 deno task lint
-node tests/live-code/cors-probe.mjs
+deno task test:live:cors
 ```
 
 An initial baseline build failed on 513 missing API-reference links before `genapi`; after generating the 883 reference files, the unchanged baseline and prototype both built successfully.
@@ -216,19 +217,24 @@ The investigation environment needed network permission and locally downloaded C
 Set `GRAMMY_TEST_BROWSER` to an installed Chromium executable where Playwright's default browser is unavailable, and provide any required system library path normally.
 Browser tests start and stop their own local production preview servers.
 No graphical desktop is required.
+The scripts, Playwright CLI, and comparison dependency installation run with Deno; no Node or npm executable is required.
+The TypeScript utilities use Deno file APIs, arguments, environment access, and `Deno.serve`.
+Compression uses [Deno’s built-in `node:zlib` compatibility API](https://docs.deno.com/runtime/fundamentals/node/#use-a-node-built-in-module); `@types/node` supplies declarations required by the npm tooling.
+The browser suite and both utilities were also verified with `node` and `npm` absent from `PATH`.
 
-For the read-only authenticated check, explicitly supply `BOT_TOKEN` through your local secret environment and run `node tests/live-code/cors-probe.mjs --auth-status`.
+For the read-only authenticated check, explicitly supply `BOT_TOKEN` through your local secret environment and run `deno task test:live:cors --auth-status`.
 That mode only calls getMe/getWebhookInfo and prints sanitized status fields.
 Never put the token in the command line or the source file.
 
 For size reproduction, install comparison dependencies outside the checkout:
 
 ```sh
-npm install --prefix /tmp/grammy-live-research --no-audit --no-fund \
-  @codemirror/view@6.43.13 @codemirror/state@6.7.6 \
-  @codemirror/commands@6.11.1 @codemirror/language@6.12.4 \
-  @codemirror/lang-javascript@6.2.5 markdown-it-prism-code-editor@0.1.0
-node tests/live-code/measure.mjs /tmp/grammy-live-research /tmp/grammy-live-baseline-dist
+mkdir -p /tmp/grammy-live-research
+(cd /tmp/grammy-live-research && deno install --node-modules-dir=auto --save-exact \
+  npm:@codemirror/view@6.43.13 npm:@codemirror/state@6.7.6 \
+  npm:@codemirror/commands@6.11.1 npm:@codemirror/language@6.12.4 \
+  npm:@codemirror/lang-javascript@6.2.5 npm:markdown-it-prism-code-editor@0.1.0)
+deno task test:live:measure /tmp/grammy-live-research /tmp/grammy-live-baseline-dist
 ```
 
 The optional final argument is a saved baseline production dist, built from the original commit after generating its API reference.

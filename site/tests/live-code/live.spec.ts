@@ -1,3 +1,4 @@
+/// <reference lib="dom" />
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 

@@ -11,7 +11,7 @@ export default defineConfig({
     baseURL: "http://127.0.0.1:4173",
     browserName: "chromium",
     launchOptions: {
-      executablePath: process.env.GRAMMY_TEST_BROWSER || undefined,
+      executablePath: Deno.env.get("GRAMMY_TEST_BROWSER") || undefined,
     },
     trace: "off",
     screenshot: "off",
