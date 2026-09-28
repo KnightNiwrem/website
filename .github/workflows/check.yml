@@ -20,9 +20,17 @@ jobs:
         run: deno fmt --check
         working-directory: site/
 
+      - name: Install Dependencies
+        run: deno ci
+        working-directory: site/
+
       - name: Check Linting
         working-directory: site/
         run: deno task lint
+
+      - name: Test Markdown Plugins
+        run: deno task test
+        working-directory: site/
 
   links:
     runs-on: ubuntu-latest

@@ -6,6 +6,7 @@ import type { EnhanceAppContext } from "vitepress";
 import ThankYou from "../components/ThankYou.vue";
 import LanguagePopup from "../components/LanguagePopup.vue";
 import NotFound from "../components/NotFound.vue";
+import CodePlayground from "../components/CodePlayground.vue";
 
 export default {
   ...DefaultTheme,
@@ -15,5 +16,6 @@ export default {
     ctx.app.component("ThankYou", ThankYou);
     ctx.app.component("LanguagePopup", LanguagePopup);
     ctx.app.component("NotFound", NotFound);
+    ctx.app.component("CodePlayground", CodePlayground);
   },
 };
