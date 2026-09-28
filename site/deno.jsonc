@@ -23,6 +23,7 @@
     "$types/markdown-it": "npm:@types/markdown-it@^14.1.2",
     "country-flag-emoji-polyfill": "npm:country-flag-emoji-polyfill@^0.1.8",
     "lazy-lottie-player": "npm:lazy-lottie-player@^0.0.1",
+    "livecodes": "npm:livecodes@0.14.1",
     "markdownlint-cli2": "npm:markdownlint-cli2@^0.22.1",
     "sass": "npm:sass@^1.101.0",
     "vitepress": "npm:vitepress@^1.6.4",
