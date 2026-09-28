@@ -1,0 +1,26 @@
+.live-code .prism-code-editor {
+  font-family: var(--vp-font-family-mono);
+  font-size: 16px;
+  line-height: 1.6;
+  max-height: 32rem;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 6px;
+  --pce-bg: var(--vp-code-block-bg);
+  --pce-selection: #4080c044;
+  --pce-line-number: var(--vp-c-text-3);
+  color: var(--vp-c-text-1);
+}
+.live-code .token.comment {
+  color: var(--vp-c-text-2);
+}
+.live-code .token.keyword,
+.live-code .token.operator {
+  color: var(--vp-c-brand-1);
+}
+.live-code .token.string {
+  color: var(--vp-c-green-1);
+}
+.live-code .token.number,
+.live-code .token.boolean {
+  color: var(--vp-c-purple-1);
+}

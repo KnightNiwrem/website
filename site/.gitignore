@@ -7,3 +7,6 @@ docs/ref/
 
 # build output
 docs/.vitepress/dist
+tests/live-code/fixture/.vitepress/dist/
+tests/live-code/fixture/.vitepress/cache/
+tests/live-code/fixture/.vitepress/.temp/
