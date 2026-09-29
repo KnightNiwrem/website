@@ -1,0 +1,182 @@
+// Styles of live examples. The component adds them to the page when it is
+// used, so that they are not part of the stylesheet of every page.
+
+// The editor replaces the static code and its line numbers.
+.vp-doc div.live-code-editing {
+  &.line-numbers-mode {
+    padding-left: 0;
+  }
+
+  > :is(pre, .line-numbers-wrapper) {
+    display: none;
+  }
+}
+
+// The editor puts a `language-*` class on its container, which VitePress
+// styles as a code block, and hides in code groups unless it is active.
+.vp-doc .live-code-editor > .prism-code-editor {
+  display: grid;
+  margin: 0;
+  border-radius: 0;
+  background: var(--pce-bg);
+  transition: none;
+}
+
+.live-code-editor .prism-code-editor {
+  // Colors of the github-light theme of Shiki, which VitePress uses
+  --lc-text: #24292e;
+  --lc-keyword: #d73a49;
+  --lc-string: #032f62;
+  --lc-comment: #6a737d;
+  --lc-function: #6f42c1;
+  --lc-constant: #005cc5;
+  --lc-parameter: #e36209;
+
+  --pce-bg: var(--vp-code-block-bg);
+  --pce-cursor: var(--vp-c-text-1);
+  --pce-selection: var(--vp-c-default-soft);
+  --pce-line-number: var(--vp-code-line-number-color);
+  --padding-inline: 24px;
+  --number-spacing: 16px;
+
+  color: var(--lc-text);
+  font-family: var(--vp-font-family-mono);
+  font-size: var(--vp-code-font-size);
+  line-height: var(--vp-code-line-height);
+
+  // iOS zooms into focused fields with text smaller than 16px.
+  @media (max-width: 639px) {
+    font-size: 16px;
+  }
+
+  .pce-wrapper {
+    margin: 20px 0;
+  }
+
+  .token.keyword,
+  .token.operator {
+    color: var(--lc-keyword);
+  }
+  .token.string,
+  .token.template-string,
+  .token.regex {
+    color: var(--lc-string);
+  }
+  .token.comment {
+    color: var(--lc-comment);
+  }
+  .token.function,
+  .token.class-name {
+    color: var(--lc-function);
+  }
+  .token.number,
+  .token.boolean,
+  .token.constant,
+  .token.builtin,
+  .token.keyword-this,
+  .token.keyword-null {
+    color: var(--lc-constant);
+  }
+  .token.parameter {
+    color: var(--lc-parameter);
+  }
+  .token.punctuation,
+  .token.interpolation-punctuation {
+    color: var(--lc-text);
+  }
+  .active-bracket {
+    outline: 1px solid var(--vp-c-divider);
+  }
+}
+
+// github-dark
+.dark .live-code-editor .prism-code-editor {
+  --lc-text: #e1e4e8;
+  --lc-keyword: #f97583;
+  --lc-string: #9ecbff;
+  --lc-comment: #6a737d;
+  --lc-function: #b392f0;
+  --lc-constant: #79b8ff;
+  --lc-parameter: #ffab70;
+  color-scheme: dark;
+}
+
+.live-code-panel {
+  margin: 16px 0;
+  font-size: 14px;
+
+  p {
+    margin: 8px 0;
+    line-height: 1.6;
+  }
+
+  button {
+    min-height: 40px;
+    padding: 0 16px;
+    border: 1px solid var(--vp-c-divider);
+    border-radius: 20px;
+    font-weight: 500;
+    color: var(--vp-c-text-1);
+    background: var(--vp-c-bg-soft);
+
+    &:hover:not(:disabled) {
+      border-color: var(--vp-c-brand-1);
+    }
+
+    &:disabled {
+      opacity: 0.5;
+    }
+  }
+
+  .live-code-primary {
+    border-color: var(--vp-button-brand-border);
+    color: var(--vp-button-brand-text);
+    background: var(--vp-button-brand-bg);
+  }
+}
+
+.live-code-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.live-code-note {
+  color: var(--vp-c-text-2);
+}
+
+.live-code-stale {
+  color: var(--vp-c-warning-1);
+}
+
+.vp-doc .live-code-output {
+  max-height: 20em;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding: 12px 16px;
+  list-style: none;
+  border-radius: 8px;
+  font-family: var(--vp-font-family-mono);
+  font-size: 13px;
+  background: var(--vp-code-block-bg);
+
+  li {
+    margin: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .warn {
+    color: var(--vp-c-warning-1);
+  }
+
+  .error {
+    color: var(--vp-c-danger-1);
+  }
+
+  .info,
+  .status {
+    color: var(--vp-c-text-2);
+  }
+}
