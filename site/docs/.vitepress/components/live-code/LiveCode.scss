@@ -1,0 +1,128 @@
+.live-code-editing {
+  > pre,
+   > .line-numbers-wrapper {
+    display: none;
+  }
+}
+
+.live-code-panel {
+  margin: -8px 0 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+
+  p {
+    margin: 8px 0;
+    line-height: 1.5;
+  }
+
+  button {
+    min-height: 40px;
+    padding: 0 16px;
+    border: 1px solid var(--vp-c-divider);
+    border-radius: 20px;
+    font-weight: 500;
+    color: var(--vp-c-text-1);
+    background: var(--vp-c-bg-soft);
+
+    &:hover:not(:disabled) {
+      border-color: var(--vp-c-brand-1);
+    }
+
+    &:disabled {
+      opacity: 0.5;
+    }
+  }
+}
+
+.live-code-open,
+.live-code-run {
+  color: var(--vp-button-brand-text) !important;
+  background: var(--vp-button-brand-bg) !important;
+  border-color: var(--vp-button-brand-border) !important;
+}
+
+.live-code-note {
+  color: var(--vp-c-text-2);
+}
+
+.live-code-token {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: center;
+
+  input {
+    flex: 1 1 16em;
+    min-width: 0;
+    min-height: 40px;
+    padding: 0 12px;
+    border: 1px solid var(--vp-c-divider);
+    border-radius: 8px;
+    // At least 16px text keeps iOS from zooming into the field.
+    font-size: 16px;
+    font-family: var(--vp-font-family-mono);
+    background: var(--vp-c-bg);
+
+    &:focus {
+      border-color: var(--vp-c-brand-1);
+    }
+  }
+}
+
+.live-code-actions,
+.live-code-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.live-code-confirm {
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--vp-c-warning-soft);
+}
+
+.live-code-status a {
+  margin-left: 8px;
+  font-weight: 500;
+  color: var(--vp-c-brand-1);
+}
+
+.live-code-warning {
+  color: var(--vp-c-warning-1);
+}
+
+.live-code-output {
+  max-height: 16em;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding: 8px 12px !important;
+  list-style: none !important;
+  border-radius: 8px;
+  font-family: var(--vp-font-family-mono);
+  font-size: 13px;
+  background: var(--vp-code-block-bg);
+
+  li {
+    margin: 0 !important;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .warn {
+    color: var(--vp-c-warning-1);
+  }
+
+  .error {
+    color: var(--vp-c-danger-1);
+  }
+
+  .status,
+  .info {
+    color: var(--vp-c-text-2);
+  }
+}

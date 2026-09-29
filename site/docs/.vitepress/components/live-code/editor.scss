@@ -1,0 +1,91 @@
+// The editor adds a `language-*` class to its container, which VitePress
+// styles as a code block (and hides inside code groups). Undo that.
+.vp-doc .live-code-editor > .prism-code-editor {
+  display: grid;
+  margin: 0;
+  border-radius: 0;
+  background: none;
+  transition: none;
+}
+
+// Matches the github-light and github-dark themes that VitePress uses for
+// static code blocks, so that switching to the editor keeps the colors.
+.live-code-editor .prism-code-editor {
+  --lc-text: #24292e;
+  --lc-keyword: #d73a49;
+  --lc-string: #032f62;
+  --lc-comment: #6a737d;
+  --lc-function: #6f42c1;
+  --lc-constant: #005cc5;
+  --lc-variable: #e36209;
+
+  --pce-bg: transparent;
+  --pce-cursor: var(--vp-c-text-1);
+  --pce-selection: var(--vp-c-brand-soft);
+  --pce-line-number: var(--vp-code-line-number-color);
+  --padding-inline: 24px;
+  --number-spacing: 16px;
+  --number-width: 2ch;
+
+  color: var(--lc-text);
+  font-family: var(--vp-font-family-mono);
+  font-size: var(--vp-code-font-size);
+  line-height: var(--vp-code-line-height);
+  // At least 16px text keeps iOS from zooming into a focused textarea.
+  @media (max-width: 639px) {
+    font-size: 16px;
+  }
+  .pce-wrapper {
+    margin: 20px 0;
+  }
+}
+
+.dark .live-code-editor .prism-code-editor {
+  --lc-text: #e1e4e8;
+  --lc-keyword: #f97583;
+  --lc-string: #9ecbff;
+  --lc-comment: #6a737d;
+  --lc-function: #b392f0;
+  --lc-constant: #79b8ff;
+  --lc-variable: #ffab70;
+  color-scheme: dark;
+}
+
+.live-code-editor .prism-code-editor {
+  .token.keyword,
+  .token.operator,
+  .token.keyword-this {
+    color: var(--lc-keyword);
+  }
+  .token.string,
+  .token.template-string,
+  .token.regex,
+  .token.char {
+    color: var(--lc-string);
+  }
+  .token.comment {
+    color: var(--lc-comment);
+  }
+  .token.function,
+  .token.class-name,
+  .token.maybe-class-name {
+    color: var(--lc-function);
+  }
+  .token.number,
+  .token.boolean,
+  .token.constant,
+  .token.builtin,
+  .token.keyword-null {
+    color: var(--lc-constant);
+  }
+  .token.parameter {
+    color: var(--lc-variable);
+  }
+  .token.punctuation,
+  .token.interpolation-punctuation {
+    color: var(--lc-text);
+  }
+  .active-bracket {
+    outline: 1px solid var(--vp-c-divider);
+  }
+}

@@ -11,6 +11,8 @@ export default defineConfig({
   lastUpdated: true,
   cleanUrls: true,
   cacheDir: ".vitepress/cache",
+  // Test pages are only built on request, see __fixtures__/live-code.md.
+  srcExclude: process.env.LIVE_CODE_FIXTURES ? [] : ["__fixtures__/**"],
   outDir: ".vitepress/dist",
 
   locales: {
