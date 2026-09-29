@@ -25,8 +25,18 @@ export interface SessionHandlers {
 }
 
 // Bots that are polling in this page, by bot ID. Telegram only allows one
-// `getUpdates` loop per bot, so a new run takes the bot over from an old one.
+// `getUpdates` loop per bot, so a new run takes the bot over from an old one,
+// which is also what happens on Telegram's side when a second loop starts.
 const claims = new Map<string, Session>();
+const OTHER_TAB = "Stopped, because the same bot was started in another tab.";
+
+// Runs in other tabs of this site are asked to stop the same way.
+const channel = typeof BroadcastChannel === "undefined"
+  ? undefined
+  : new BroadcastChannel("grammy-live-code");
+channel?.addEventListener("message", ({ data }) => {
+  if (data?.type === "take-over") claims.get(data.bot)?.stop(OTHER_TAB);
+});
 
 export class Session {
   #worker: Worker;
@@ -161,35 +171,47 @@ export class Session {
         "Stopped, because another example started the same bot.",
       );
     }
-    // Other tabs of this site are coordinated with Web Locks. They are only
-    // available in secure contexts, and Telegram rejects concurrent polling
-    // with a 409 error anyway.
+    // Tabs hold a Web Lock per bot while they use it. Web Locks are only
+    // available in secure contexts; elsewhere, Telegram's 409 error remains.
     if (navigator.locks !== undefined) {
-      const acquired = await new Promise<boolean>((resolve) => {
-        navigator.locks.request(
-          `grammy-live-code:${bot}`,
-          { ifAvailable: true },
-          (lock) => {
-            resolve(lock !== null);
-            if (lock === null) return;
-            // Hold the lock until the run ends.
-            return new Promise<void>((release) => {
-              if (this.#ended) release();
-              else this.#releases.push(release);
-            });
-          },
-        );
-      });
-      if (!acquired) {
-        throw new Error(
-          "This bot is already running in another tab. Stop it there first.",
-        );
+      const name = `grammy-live-code:${bot}`;
+      if (!await this.#lock(name, { ifAvailable: true })) {
+        // Ask the other tab to stop, and take the lock if it does not.
+        channel?.postMessage({ type: "take-over", bot });
+        const signal = AbortSignal.timeout(GRACE_MS + 1000);
+        if (!await this.#lock(name, { signal }).catch(() => false)) {
+          await this.#lock(name, { steal: true });
+        }
       }
     }
     if (this.#ended) return;
     claims.set(bot, this);
     this.#releases.push(() => {
       if (claims.get(bot) === this) claims.delete(bot);
+    });
+  }
+
+  /** Requests a lock that is held until the run ends. */
+  #lock(name: string, options: LockOptions): Promise<boolean> {
+    let granted = false;
+    return new Promise((resolve, reject) => {
+      navigator.locks.request(name, options, (lock) => {
+        if (lock === null) {
+          resolve(false);
+          return;
+        }
+        granted = true;
+        resolve(true);
+        return new Promise<void>((release) => {
+          if (this.#ended) release();
+          else this.#releases.push(release);
+        });
+      }).catch((err) => {
+        // Before the lock is granted, the request was aborted. Afterwards,
+        // another tab took it over.
+        if (!granted) reject(err);
+        else this.stop(OTHER_TAB);
+      });
     });
   }
 }

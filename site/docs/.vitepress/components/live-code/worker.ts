@@ -6,9 +6,12 @@
 // make any request the page itself could make.
 import * as grammy from "grammy/web";
 import {
-  compile,
+  findSyntaxError,
   locate,
   parseSpecifier,
+  prepare,
+  type Prepared,
+  ready,
   satisfies,
   SourceError,
 } from "./prepare.ts";
@@ -35,6 +38,7 @@ const scope = globalThis as unknown as {
 
 let token = "";
 let sourceURL = "example.ts";
+let prepared: Prepared | undefined;
 let stopping = false;
 const tokens = new Set<string>();
 const bots = new Set<{ isRunning(): boolean; stop(): Promise<void> }>();
@@ -140,7 +144,7 @@ const grammyModule = moduleOf({ ...grammy, Bot });
 // `grammy/types` only adds `InputFile` to the Bot API types, which are
 // erased at runtime. The web build of `InputFile` is the one to use here.
 const typesModule = moduleOf({ InputFile: grammy.InputFile });
-const modules: Record<string, object> = {
+const modules: Record<string, Record<string, unknown>> = {
   "grammy": grammyModule,
   "grammy/web": grammyModule,
   "grammy/types": typesModule,
@@ -148,15 +152,16 @@ const modules: Record<string, object> = {
 const versions: Record<string, string> = { grammy: GRAMMY_VERSION };
 
 function moduleOf(exports: Record<string, unknown>) {
-  // Like transpiled ES modules in Node.js, so that interop helpers use the
-  // named exports directly.
+  // What `require` returns in Node.js, where grammY is CommonJS compiled from
+  // TypeScript.
   return Object.defineProperty(exports, "__esModule", { value: true });
 }
 
-function require(specifier: string): unknown {
+/** Returns the key in `modules` for a specifier, or throws an explanation. */
+function lookup(specifier: string): string {
   const spec = parseSpecifier(specifier);
-  const module = spec && modules[spec.name + spec.subpath];
-  if (spec === undefined || module === undefined) {
+  const key = spec && spec.name + spec.subpath;
+  if (spec === undefined || !(key! in modules)) {
     throw new Error(
       `Cannot import "${specifier}" here. Examples run in your browser, where only these modules are available: ${
         Object.keys(modules).join(", ")
@@ -171,8 +176,61 @@ function require(specifier: string): unknown {
       );
     }
   }
-  return module;
+  return key!;
 }
+
+/** `require` for CommonJS examples */
+function require(specifier: string): unknown {
+  return modules[lookup(specifier)];
+}
+
+// ES modules import the same objects through generated modules, which are
+// loaded once via a global that is removed right afterwards.
+const urls = new Map<string, string>();
+const names = new Map<string, string>();
+
+function blobURL(code: string) {
+  return URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
+}
+
+async function loadModules() {
+  const handoff = "__grammyLiveCodeModules";
+  Object.defineProperty(globalThis, handoff, {
+    value: modules,
+    configurable: true,
+  });
+  try {
+    for (const [key, exports] of Object.entries(modules)) {
+      const bindings = Object.keys(exports)
+        .filter((name) => /^[A-Za-z_$][\w$]*$/.test(name) && name !== "default")
+        .map((name) => `export const ${name} = m.${name};`);
+      const url = blobURL(
+        [
+          `const m = globalThis.${handoff}[${JSON.stringify(key)}];`,
+          ...bindings,
+          // Node.js and Deno load grammY as CommonJS, which makes all of it
+          // the default export.
+          "export default m;",
+        ].join("\n"),
+      );
+      await import(/* @vite-ignore */ url);
+      urls.set(key, url);
+      names.set(url, key);
+    }
+  } finally {
+    delete (globalThis as Record<string, unknown>)[handoff];
+  }
+}
+
+const resolver = {
+  resolve: (specifier: string) => {
+    const url = urls.get(lookup(specifier))!;
+    names.set(url, specifier);
+    return url;
+  },
+  failing: (message: string) =>
+    blobURL(`throw new Error(${JSON.stringify(message)});`),
+};
 
 function describe(err: unknown): string {
   if (err instanceof grammy.GrammyError) {
@@ -208,8 +266,15 @@ function report(err: unknown) {
   const cause = err instanceof grammy.BotError ? err.error : err;
   const at = err instanceof SourceError
     ? { line: err.line, column: err.column }
-    : locate(cause instanceof Error ? cause.stack : undefined, sourceURL);
-  post({ type: "error", text: redact(describe(err), tokens), ...at });
+    : locate(
+      cause instanceof Error ? cause.stack : undefined,
+      sourceURL,
+      prepared,
+    );
+  let text = describe(err);
+  // Name modules like in the source, not by their generated URLs.
+  for (const [url, name] of names) text = text.replaceAll(url, name);
+  post({ type: "error", text: redact(text, tokens), ...at });
 }
 
 /** Uncaught errors end the example, like they end a Node.js or Deno process. */
@@ -264,19 +329,29 @@ async function run(source: string, language: Language, botToken: string) {
   token = botToken;
   if (token !== "") tokens.add(token);
   sourceURL = `example.${language}`;
-  let example;
   try {
-    example = compile(source, language, sourceURL);
+    await ready;
+    await loadModules();
+    prepared = prepare(source, language, sourceURL, resolver);
   } catch (err) {
     crash(err);
     return;
   }
-  const module = { exports: {} };
+  // Stopped while preparing
+  if (stopping) return;
   try {
-    await example(require, module, module.exports);
+    if (prepared.format === "commonjs") {
+      const module = { exports: {} };
+      prepared.run.call(module.exports, module.exports, require, module);
+    } else {
+      await import(/* @vite-ignore */ blobURL(prepared.code));
+    }
     if (!stopping) post({ type: "evaluated" });
   } catch (err) {
-    crash(err);
+    // Browsers do not tell where a module has a syntax error.
+    const parseError = err instanceof SyntaxError &&
+      locate(err.stack, sourceURL, prepared) === undefined;
+    crash(parseError ? findSyntaxError(source, language) ?? err : err);
   }
 }
 

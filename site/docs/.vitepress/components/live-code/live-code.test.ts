@@ -7,9 +7,13 @@ import {
   assertThrows,
 } from "@std/assert";
 import {
-  compile,
+  findSyntaxError,
   locate,
+  type Modules,
   parseSpecifier,
+  prepare,
+  type Prepared,
+  ready,
   satisfies,
   SourceError,
 } from "./prepare.ts";
@@ -20,20 +24,53 @@ import {
   redact,
   REDACTED,
 } from "./protocol.ts";
-/** Runs an example with a fake module registry and returns what it required. */
+
+await ready;
+
+const dataURL = (code: string) =>
+  `data:text/javascript;base64,${btoa(unescape(encodeURIComponent(code)))}`;
+
+// Stands in for grammY: records calls on a global.
+const FAKE_GRAMMY = dataURL(`
+const record = (call) => globalThis.calls.push(call);
+export class Bot {
+  constructor(token) { record("new:" + token); }
+  on(filter) { record("on:" + filter); }
+  start() { record("start"); }
+}
+export class InputFile {}
+export default { Bot };
+`);
+
+const modules: Modules = {
+  resolve(specifier) {
+    if (/^(npm:)?grammy(\/(web|types))?$/.test(specifier)) return FAKE_GRAMMY;
+    throw new Error(`Cannot import "${specifier}" here.`);
+  },
+  failing: (message) => dataURL(`throw new Error(${JSON.stringify(message)});`),
+};
+
+let runs = 0;
+
+/** Prepares and runs an example, returning what it recorded. */
 async function run(source: string, language: "ts" | "js") {
-  const required: string[] = [];
-  const fn = compile(source, language, `example.${language}`);
-  const module = { exports: {} as Record<string, unknown> };
-  await fn(
-    (s) => {
+  const g = globalThis as { calls?: string[] };
+  g.calls = [];
+  const prepared = prepare(source, language, `example.${language}`, modules);
+  let exports: Record<string, unknown> = {};
+  if (prepared.format === "commonjs") {
+    const module = { exports };
+    const required: string[] = [];
+    prepared.run.call(module.exports, module.exports, (s: string) => {
       required.push(s);
-      return { Bot: class {}, __esModule: true };
-    },
-    module,
-    module.exports,
-  );
-  return { required, exports: module.exports };
+      return import(modules.resolve(s));
+    }, module);
+    exports = module.exports;
+  } else {
+    // A unique URL per run, like the worker's blob URLs.
+    exports = await import(dataURL(`${prepared.code}\n// ${++runs}`));
+  }
+  return { prepared, exports, calls: g.calls };
 }
 
 const homepage = (importLine: string) =>
@@ -55,99 +92,187 @@ Deno.test("languageOf maps VitePress classes", () => {
   assertEquals(languageOf("vp-code-group"), undefined);
 });
 
-Deno.test("compile keeps line numbers of TypeScript", () => {
-  const source = `import { Bot, type Context } from "grammy";
-interface C { a: number }
-type MyContext = Context & { config: C };
-const bot = new Bot<MyContext>("");
-throw new Error("here");`;
-  const fn = compile(source, "ts", "example.ts");
-  return fn(() => ({ Bot: class {} }), { exports: {} }, {}).then(
-    () => assert(false),
-    (err) => assertEquals(locate(err.stack, "example.ts")?.line, 5),
-  );
-});
-
-Deno.test("compile runs all three homepage variants", async () => {
-  const bot = (calls: string[]) =>
-    class {
-      on(filter: string) {
-        calls.push(`on:${filter}`);
-      }
-      start() {
-        calls.push("start");
-      }
-    };
+Deno.test("TypeScript and Deno variants run as native ES modules", async () => {
   for (
-    const [language, line] of [
-      ["ts", 'import { Bot } from "grammy";'],
-      ["js", 'const { Bot } = require("grammy");'],
-      ["ts", 'import { Bot } from "npm:grammy";'],
-    ] as const
+    const line of [
+      'import { Bot } from "grammy";',
+      'import { Bot } from "npm:grammy";',
+    ]
   ) {
-    const calls: string[] = [];
-    const specifiers: string[] = [];
-    const fn = compile(homepage(line), language, `example.${language}`);
-    await fn(
-      (s) => {
-        specifiers.push(s);
-        return { Bot: bot(calls), __esModule: true };
-      },
-      { exports: {} },
-      {},
-    );
-    assertEquals(calls, ["on:message", "start"]);
-    assertEquals(specifiers, [line.match(/"(.+)"/)![1]]);
+    const { prepared, calls } = await run(homepage(line), "ts");
+    assertEquals(prepared.format, "module");
+    assertEquals(calls, ["new:", "on:message", "start"]);
   }
 });
 
-Deno.test("compile leaves CommonJS unchanged", async () => {
-  // Sloppy mode: assigning an undeclared variable works like in Node.js.
-  const { exports } = await run(
-    `undeclared = 1; module.exports.x = undeclared;`,
+Deno.test("JavaScript that parses as CommonJS stays CommonJS", () => {
+  const prepared = prepare(
+    homepage('const { Bot } = require("grammy");'),
     "js",
+    "example.js",
+    modules,
   );
-  assertEquals(exports.x, 1);
+  assertEquals(prepared.format, "commonjs");
+  // Sloppy mode and `this === module.exports`, like in Node.js.
+  const module = { exports: {} as Record<string, unknown> };
+  const cjs = prepare(
+    `undeclared = 1; this.x = undeclared;`,
+    "js",
+    "example.js",
+    modules,
+  ) as Extract<Prepared, { format: "commonjs" }>;
+  cjs.run.call(module.exports, module.exports, () => ({}), module);
+  assertEquals(module.exports.x, 1);
 });
 
-Deno.test("compile accepts ES modules in JavaScript blocks", async () => {
-  const { required } = await run(
-    `import { Bot } from "grammy"; new Bot();`,
-    "js",
+Deno.test("JavaScript with module syntax or top-level await is a module", () => {
+  assertEquals(
+    prepare(`import { Bot } from "grammy";`, "js", "example.js", modules)
+      .format,
+    "module",
   );
-  assertEquals(required, ["grammy"]);
+  assertEquals(
+    prepare(`await 1;`, "js", "example.js", modules).format,
+    "module",
+  );
+  assertEquals(
+    prepare(`console.log(import.meta.url);`, "js", "example.js", modules)
+      .format,
+    "module",
+  );
 });
 
-Deno.test("compile supports top-level await and exports", async () => {
+Deno.test("module semantics are kept", async () => {
+  // Imports are hoisted, modules are strict, and bindings are read-only.
   const { exports } = await run(
-    `const x: number = await Promise.resolve(2);\nexport const y = x * 2;`,
+    `export const before = typeof Bot;
+export const self = this;
+export let strict = false;
+try { undeclaredInModule = 1; } catch { strict = true; }
+export let readOnly = false;
+try { Bot = 1; } catch { readOnly = true; }
+export const value: number = await Promise.resolve(2);
+import { Bot } from "grammy";
+import * as all from "grammy";
+export const namespace = Object.prototype.toString.call(all);`,
     "ts",
   );
-  assertEquals(exports.y, 4);
+  assertEquals(exports.before, "function");
+  assertEquals(exports.self, undefined);
+  assertEquals(exports.strict, true);
+  assertEquals(exports.readOnly, true);
+  assertEquals(exports.value, 2);
+  assertEquals(exports.namespace, "[object Module]");
 });
 
-Deno.test("compile reports syntax errors with positions", () => {
+Deno.test("imports only used as types are removed like tsc does", async () => {
+  const { calls } = await run(
+    `import { Bot, type Context } from "grammy";
+import type { Message } from "grammy/types";
+import { Chat } from "grammy/types";
+const c: Chat | Message | Context | undefined = undefined;
+new Bot("x");`,
+    "ts",
+  );
+  assertEquals(calls, ["new:x"]);
+});
+
+Deno.test("unsupported static imports fail before any code runs", () => {
   const err = assertThrows(
     () =>
-      compile(
+      prepare(
+        `const a: number = 1; console.log(a);\nimport { run } from "@grammyjs/runner";\nrun();`,
+        "ts",
+        "example.ts",
+        modules,
+      ),
+    SourceError,
+  );
+  assertMatch(err.message, /Cannot import "@grammyjs\/runner" here/);
+  assertEquals([err.line, err.column], [2, 21]);
+});
+
+Deno.test("unsupported dynamic imports fail when evaluated", async () => {
+  const { exports } = await run(
+    `export const ok = (await import("grammy")).Bot !== undefined;
+export const failed = await import("express").then(() => "", (e) => e.message);`,
+    "js",
+  );
+  assertEquals(exports.ok, true);
+  assertMatch(String(exports.failed), /Cannot import "express" here/);
+});
+
+Deno.test("CommonJS can use import()", async () => {
+  const prepared = prepare(
+    `module.exports = import("grammy");`,
+    "js",
+    "example.js",
+    modules,
+  );
+  assertEquals(prepared.format, "commonjs");
+  const module = { exports: {} as unknown };
+  (prepared as Extract<Prepared, { format: "commonjs" }>).run.call(
+    module.exports,
+    {},
+    () => ({}),
+    module as never,
+  );
+  assert(
+    typeof (await (module.exports as Promise<{ Bot: unknown }>)).Bot ===
+      "function",
+  );
+});
+
+Deno.test("syntax errors are reported with positions", () => {
+  const err = assertThrows(
+    () =>
+      prepare(
         `const a = 1;\nbot.on("message", (ctx) => ctx.reply("x");\n`,
         "ts",
         "example.ts",
+        modules,
       ),
     SourceError,
   );
   assertEquals(err.line, 2);
   assert(err.column! > 0);
   assertMatch(err.message, /Unexpected token/);
+  assertEquals(err.name, "SyntaxError");
+  const js = findSyntaxError(`import x from "grammy";\nconst = 1;`, "js");
+  assertEquals(js?.line, 2);
 });
 
-Deno.test("locate adjusts columns on the first line", () => {
-  const fn = compile(`throw new Error("x");`, "js", "example.js");
-  return fn(() => ({}), { exports: {} }, {}).then(
-    () => assert(false),
-    (err) =>
-      assertEquals(locate(err.stack, "example.js"), { line: 1, column: 7 }),
+Deno.test("locate maps errors to the displayed source", () => {
+  // Columns of TypeScript are mapped back across removed types.
+  const source =
+    `const a: number = 1;\nconst b: Map<string, number> = new Map(); throw new Error("x");`;
+  const prepared = prepare(source, "ts", "example.ts", modules);
+  const generated = prepared.format === "module" &&
+    prepared.code.split("\n")[1].indexOf("new Error") + 1;
+  const column = source.split("\n")[1].indexOf("new Error") + 1;
+  assert(generated && generated < column);
+  assertEquals(
+    locate(
+      `Error: x\n    at example.ts:2:${generated}`,
+      "example.ts",
+      prepared,
+    ),
+    { line: 2, column },
   );
+  // CommonJS: the function header on the first line is not counted.
+  const cjs = prepare(`throw new Error("x");`, "js", "example.js", modules);
+  let stack = "";
+  try {
+    (cjs as Extract<Prepared, { format: "commonjs" }>).run.call(
+      {},
+      {},
+      () => ({}),
+      { exports: {} },
+    );
+  } catch (e) {
+    stack = (e as Error).stack!;
+  }
+  assertEquals(locate(stack, "example.js", cjs), { line: 1, column: 7 });
 });
 
 Deno.test("parseSpecifier understands bare and npm: specifiers", () => {
@@ -249,5 +374,5 @@ Deno.test("GRAMMY_VERSION matches deno.jsonc", async () => {
     config,
     new RegExp(`"npm:grammy@${GRAMMY_VERSION.replaceAll(".", "\\.")}"`),
   );
-  assertInstanceOf(new SourceError("x"), Error);
+  assertInstanceOf(new SourceError("Error", "x"), Error);
 });

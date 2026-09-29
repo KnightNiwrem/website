@@ -1,17 +1,14 @@
----
-search: false
----
-
 <!-- markdownlint-disable no-inline-html -->
 
 # Live Code Fixture
 
-This page is only built with `LIVE_CODE_FIXTURES=1`.
-It checks that `<LiveCode>` works for blocks other than the homepage example.
+This test site is separate from the documentation. It checks that `<LiveCode>`
+works for blocks other than the homepage example.
 
 ## Code Group From the Getting Started Page
 
-Copied from [Getting Started](../guide/getting-started#getting-started-on-node-js).
+Copied from
+[Getting Started](https://grammy.dev/guide/getting-started#getting-started-on-node-js).
 
 <LiveCode>
 
@@ -65,7 +62,9 @@ bot.start();
 
 ## Single Block With Types
 
-The summary from [Context](../guide/context#customizing-the-context-object), completed with an import and `start()`.
+The summary from
+[Context](https://grammy.dev/guide/context#customizing-the-context-object),
+completed with an import and `start()`.
 
 <LiveCode>
 
@@ -109,7 +108,7 @@ await myBot.start({
 
 ## Unsupported Import
 
-From the [runner plugin](../plugins/runner).
+From the [runner plugin](https://grammy.dev/plugins/runner).
 
 <LiveCode>
 

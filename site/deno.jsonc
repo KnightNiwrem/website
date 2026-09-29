@@ -20,10 +20,12 @@
     "links:fix": "deno --reload -E=DEBUG,GITHUB_API_ROOT,GITHUB_TOKEN -NR=. -W=docs --allow-run=deno https://raw.githubusercontent.com/grammyjs/link-checker/main/website_cli.ts --clean-url --fix docs"
   },
   "imports": {
+    "@jridgewell/trace-mapping": "npm:@jridgewell/trace-mapping@0.3.31",
     "@std/assert": "jsr:@std/assert@1.0.19",
     "@vueuse/core": "npm:@vueuse/core@^14.3.0",
     "$types/markdown-it": "npm:@types/markdown-it@^14.1.2",
     "country-flag-emoji-polyfill": "npm:country-flag-emoji-polyfill@^0.1.8",
+    "es-module-lexer": "npm:es-module-lexer@3.0.2",
     "grammy": "npm:grammy@1.46.0",
     "lazy-lottie-player": "npm:lazy-lottie-player@^0.0.1",
     "markdownlint-cli2": "npm:markdownlint-cli2@^0.22.1",

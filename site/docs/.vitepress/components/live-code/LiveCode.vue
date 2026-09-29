@@ -52,6 +52,10 @@ let observer: MutationObserver | undefined;
 let hiddenAt: number | undefined;
 
 const active = computed(() => blocks.value[activeIndex.value]);
+// Changes whenever the edit history of an editor changes.
+const historyTick = ref(0);
+const canUndo = computed(() => historyTick.value >= 0 && active.value?.editor?.can(-1));
+const canRedo = computed(() => historyTick.value >= 0 && active.value?.editor?.can(1));
 const edited = computed(() =>
   active.value !== undefined &&
   sources.value[activeIndex.value] !== active.value.original
@@ -153,10 +157,16 @@ async function open() {
       b.language,
       `${b.label} code of this example`,
       (value) => sources.value[i] = value,
+      () => historyTick.value++,
     );
     b.el.classList.add("live-code-editing");
   });
   active.value?.editor?.focus();
+}
+
+function go(offset: -1 | 1) {
+  active.value?.editor?.go(offset);
+  historyTick.value++;
 }
 
 function reset() {
@@ -279,6 +289,28 @@ const statusText = computed(() => {
           Edit and run this example
         </button>
         <template v-else>
+          <div class="live-code-actions">
+            <!-- Keep the focus in the editor, so that phones keep the keyboard open. -->
+            <button
+              type="button"
+              :disabled="!canUndo"
+              @mousedown.prevent
+              @click="go(-1)"
+            >
+              Undo
+            </button>
+            <button
+              type="button"
+              :disabled="!canRedo"
+              @mousedown.prevent
+              @click="go(1)"
+            >
+              Redo
+            </button>
+            <button type="button" :disabled="!edited" @click="reset">
+              Reset code
+            </button>
+          </div>
           <p class="live-code-note">
             Runs in your browser with grammY {{ GRAMMY_VERSION }} and talks to
             Telegram directly. Use a test bot: the code can read the token, and
@@ -311,9 +343,6 @@ const statusText = computed(() => {
               @click="stop"
             >
               Stop
-            </button>
-            <button type="button" :disabled="!edited" @click="reset">
-              Reset code
             </button>
           </div>
           <p class="live-code-status" role="status">

@@ -1,6 +1,8 @@
 // Browser tests for live code blocks, run against a production build:
 //
-//   cd site && LIVE_CODE_FIXTURES=1 deno task build && deno task serve
+//   cd site && deno task build && deno task serve
+//   cd site && deno -A npm:vitepress build tests/live-code/fixture &&
+//     deno -A npm:vitepress serve tests/live-code/fixture --port 4174
 //   cd site/tests/live-code && deno test -A browser_test.ts
 //
 // Most tests answer Telegram requests with a MOCK (see mock_telegram.ts). They
@@ -20,7 +22,9 @@ import {
 import { MOCK_TOKEN, MOCK_USERNAME, MockTelegram } from "./mock_telegram.ts";
 
 const BASE = Deno.env.get("LIVE_CODE_BASE_URL") ?? "http://localhost:4173";
-const FIXTURE = "/__fixtures__/live-code";
+// Separate test site with more examples, see fixture/index.md.
+const FIXTURE = Deno.env.get("LIVE_CODE_FIXTURE_URL") ??
+  "http://localhost:4174/";
 // Well-formed, but not a real token.
 const FAKE_TOKEN = "1234567890:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
@@ -54,7 +58,8 @@ async function setup(
 
 /** Opens a live example and returns helpers for it. */
 async function open(page: Page, path = "/", index = 0, tap = false) {
-  if (!page.url().endsWith(path)) await page.goto(BASE + path);
+  const url = path.startsWith("http") ? path : BASE + path;
+  if (page.url() !== url) await page.goto(url);
   const root = page.locator(".live-code").nth(index);
   const button = root.getByRole("button", {
     name: "Edit and run this example",
@@ -372,9 +377,9 @@ Deno.test({
       );
 
       await t.step(
-        "another tab cannot poll the same bot (mock API)",
+        "another tab takes the bot over (mock API)",
         async () => {
-          const { context, page } = await setup(browser);
+          const { context, page, mock } = await setup(browser);
           const first = await open(page);
           await page.getByLabel(/Bot token/).fill(MOCK_TOKEN);
           await first.run();
@@ -383,19 +388,137 @@ Deno.test({
           const second = await open(other);
           await other.getByLabel(/Bot token/).fill(MOCK_TOKEN);
           await second.run();
-          await second.idle();
-          assertMatch(
-            await second.text(),
-            /already running in another tab\. Stop it there first\./,
-          );
-          // The first tab keeps running, then releases the bot on Stop.
-          assertMatch(await first.status.innerText(), /Running/);
-          await first.stop();
-          await first.idle();
-          await second.run();
           await polling(second.status);
+          await first.idle();
+          assertMatch(
+            await first.text(),
+            /Stopped, because the same bot was started in another tab\./,
+          );
+          mock.message("hi");
+          await until("reply", () => mock.sent().length === 1);
           await second.stop();
           await second.idle();
+          await context.close();
+        },
+      );
+
+      await t.step("ES module semantics in the browser", async () => {
+        const { context, page, mock } = await setup(browser);
+        const live = await open(page);
+        await live.editor.fill(
+          `console.log("hoisted", typeof Bot, String(this));
+try { undeclaredName = 1; } catch (e) { console.log("strict", e.name); }
+try { Bot = null; } catch (e) { console.log("read-only", e.name); }
+const value: number = await Promise.resolve(42);
+console.log("await", value);
+import { Bot } from "grammy";
+import grammy, * as ns from "npm:grammy";
+console.log("default", grammy.Bot === Bot, "namespace", ns.Bot === Bot);
+const dynamic = await import("grammy/web");
+console.log("dynamic", dynamic.Bot === Bot);
+`,
+        );
+        await live.run();
+        await until(
+          "output",
+          async () => (await live.text()).includes("dynamic"),
+        );
+        const text = await live.text();
+        for (
+          const line of [
+            "hoisted function undefined",
+            "strict ReferenceError",
+            "read-only TypeError",
+            "await 42",
+            "default true namespace true",
+            "dynamic true",
+          ]
+        ) assertMatch(text, new RegExp(line));
+        assertEquals(mock.calls.length, 0);
+        await live.stop();
+        await live.idle();
+        await context.close();
+      });
+
+      await t.step(
+        "failing imports stop the module before it runs",
+        async () => {
+          const { context, page } = await setup(browser);
+          const live = await open(page);
+          await live.editor.fill(
+            'console.log("ran");\nimport { run } from "@grammyjs/runner";\nrun();\n',
+          );
+          await live.run();
+          await live.idle();
+          let text = await live.text();
+          assertMatch(
+            text,
+            /line 2:\d+: Error: Cannot import "@grammyjs\/runner"/,
+          );
+          assert(!text.includes("ran\n"));
+          // Missing exports are link errors that name the module, not a URL.
+          await live.editor.fill(
+            'console.log("ran");\nimport { Nope } from "grammy";\nconsole.log(Nope);\n',
+          );
+          await live.run();
+          await live.idle();
+          text = await live.text();
+          assertMatch(
+            text,
+            /SyntaxError: .*'grammy'.*Nope|SyntaxError: .*Nope.*'grammy'/,
+          );
+          assert(!text.includes("blob:"));
+          await context.close();
+        },
+      );
+
+      await t.step(
+        "JavaScript is CommonJS unless it needs to be a module",
+        async () => {
+          const { context, page } = await setup(browser);
+          const live = await open(page);
+          await page.locator(".vp-code-group label", { hasText: "JavaScript" })
+            .click();
+          await until(
+            "tab",
+            async () =>
+              (await live.root.locator(".live-code-run").innerText()).includes(
+                "JavaScript",
+              ),
+          );
+          await live.editor.fill(
+            'console.log("cjs", typeof require, this === module.exports);\n',
+          );
+          await live.run();
+          await until("cjs", async () => (await live.text()).includes("cjs"));
+          assertMatch(await live.text(), /cjs function true/);
+          await live.editor.fill(
+            'await null;\nconsole.log("esm", typeof require, String(this));\n',
+          );
+          await live.run();
+          await until("esm", async () => (await live.text()).includes("esm"));
+          assertMatch(await live.text(), /esm undefined undefined/);
+          await live.stop();
+          await live.idle();
+          await context.close();
+        },
+      );
+
+      await t.step(
+        "TypeScript errors point at the displayed column",
+        async () => {
+          const { context, page } = await setup(browser);
+          const live = await open(page);
+          const line =
+            'const a: string = "x"; const b: Map<string, number> = new Map(); throw new Error("boom");';
+          await live.editor.fill(`// first line\n${line}\n`);
+          await live.run();
+          await live.idle();
+          const column = line.indexOf("new Error") + 1;
+          assertMatch(
+            await live.text(),
+            new RegExp(`TypeScript, line 2:${column}: Error: boom`),
+          );
           await context.close();
         },
       );
@@ -419,13 +542,12 @@ Deno.test({
         async () => {
           const { context, page, mock } = await setup(browser);
           const live = await open(page);
-          await live.editor.fill("while (true) {}\n");
+          await live.editor.fill('console.log("looping");\nwhile (true) {}\n');
           await live.run();
           await until(
-            "start",
-            async () => (await live.status.innerText()).includes("Starting"),
+            "loop",
+            async () => (await live.text()).includes("looping"),
           );
-          await new Promise((r) => setTimeout(r, 500));
           assertEquals(await page.evaluate(() => 1 + 1), 2);
           const stopped = Date.now();
           await live.stop();
@@ -606,6 +728,20 @@ Deno.test({
             assertMatch(value, /ctx\.reply\("Hi there! ¿Qué tal\?世界"\)/);
             // The editor was not recreated while typing.
             assert(await page.evaluate((el) => el!.isConnected, handle));
+            // Long lines wrap on phones, and Undo keeps the keyboard open.
+            assertEquals(
+              await live.root.locator(".live-code-editing .pce-wrap:visible")
+                .count(),
+              1,
+            );
+            const beforeUndo = await live.editor.inputValue();
+            await live.root.getByRole("button", { name: "Undo" }).tap();
+            assert((await live.editor.inputValue()) !== beforeUndo);
+            assert(
+              await live.editor.evaluate((el) => el === document.activeElement),
+            );
+            await live.root.getByRole("button", { name: "Redo" }).tap();
+            assertEquals(await live.editor.inputValue(), beforeUndo);
             const lines = await live.root.locator(
               ".live-code-editing .pce-line",
             ).allInnerTexts();
@@ -676,6 +812,20 @@ Deno.test({
           assertEquals(await live.editor.inputValue(), original);
           await page.keyboard.press("Control+Shift+z");
           assert((await live.editor.inputValue()) !== original, "redo");
+          // The same with the buttons, which also work without a keyboard.
+          const undo = live.root.getByRole("button", { name: "Undo" });
+          const redo = live.root.getByRole("button", { name: "Redo" });
+          while (await undo.isEnabled()) await undo.click();
+          assertEquals(await live.editor.inputValue(), original);
+          assert(await redo.isEnabled());
+          await redo.click();
+          assert((await live.editor.inputValue()) !== original);
+          // No wrapping on wide screens, like the static code blocks.
+          assertEquals(
+            await live.root.locator(".live-code-editing .pce-wrap:visible")
+              .count(),
+            0,
+          );
           await page.evaluate(() =>
             navigator.clipboard.writeText("// pasted\n")
           );
