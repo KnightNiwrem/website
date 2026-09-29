@@ -10,6 +10,7 @@ import {
 import * as web from "grammy/web";
 import {
   facade,
+  type Format,
   type Language,
   locate,
   modules,
@@ -47,9 +48,15 @@ const resolver = {
 let runs = 0;
 
 /** Prepares and runs an example like the worker does. */
-async function run(source: string, language: Language) {
-  const prepared = prepare(source, language, `example.${language}`, resolver);
-  if (prepared.format === "commonjs") {
+async function run(source: string, language: Language, format: Format = "esm") {
+  const prepared = prepare(
+    source,
+    language,
+    `example.${language}`,
+    resolver,
+    format,
+  );
+  if (prepared.format === "cjs") {
     const module = { exports: {} as Record<string, unknown> };
     prepared.run.call(
       module.exports,
@@ -68,6 +75,7 @@ function homepage(language: string) {
   const readme = Deno.readTextFileSync(
     new URL("../../../README.md", import.meta.url),
   );
+  assert(readme.includes('<LiveCode js-format="cjs">'));
   const block = new RegExp("```\\w+ \\[" + language + "\\]\\n([^`]*)```")
     .exec(readme)?.[1];
   assert(block !== undefined, `${language} example on the homepage`);
@@ -79,14 +87,14 @@ function homepage(language: string) {
 Deno.test("all homepage variants run with the real grammY", async () => {
   for (
     const [label, language, format] of [
-      ["TypeScript", "ts", "module"],
-      ["JavaScript", "js", "commonjs"],
-      ["Deno", "ts", "module"],
+      ["TypeScript", "ts", "esm"],
+      ["JavaScript", "js", "cjs"],
+      ["Deno", "ts", "esm"],
     ] as const
   ) {
     const g = globalThis as { homepageBot?: unknown };
     delete g.homepageBot;
-    const { prepared } = await run(homepage(label), language);
+    const { prepared } = await run(homepage(label), language, format);
     assertEquals(prepared.format, format, label);
     const bot = g.homepageBot;
     assert(bot instanceof web.Bot);
@@ -134,7 +142,7 @@ Deno.test("exports match what Deno provides for the same import", async () => {
   }
 });
 
-Deno.test("JavaScript is CommonJS if it compiles as such", async () => {
+Deno.test("explicit CommonJS preserves its module scope and sloppy mode", async () => {
   const { prepared, exports } = await run(
     `undeclared = 1;
 this.self = this === module.exports;
@@ -143,18 +151,19 @@ exports.require = typeof require;
 return;
 exports.after = true;`,
     "js",
+    "cjs",
   );
-  assertEquals(prepared.format, "commonjs");
+  assertEquals(prepared.format, "cjs");
   assertEquals(exports, { self: true, sloppy: 1, require: "function" });
   // Code cannot leave the module function, like in Node.js.
   const err = assertThrows(
-    () => prepare("}); (function () {", "js", "example.js", resolver),
+    () => prepare("}); (function () {", "js", "example.js", resolver, "cjs"),
     SourceError,
   );
   assertEquals(err.name, "SyntaxError");
 });
 
-Deno.test("JavaScript with module syntax is a module", () => {
+Deno.test("explicit CommonJS rejects ESM syntax instead of switching formats", () => {
   for (
     const code of [
       'import { Bot } from "grammy";',
@@ -163,11 +172,28 @@ Deno.test("JavaScript with module syntax is a module", () => {
       "console.log(import.meta.url);",
     ]
   ) {
-    assertEquals(
-      prepare(code, "js", "example.js", resolver).format,
-      "module",
-      code,
+    assertThrows(
+      () => prepare(code, "js", "example.js", resolver, "cjs"),
+      SyntaxError,
     );
+  }
+});
+
+Deno.test("JavaScript defaults to ESM even without module syntax", async () => {
+  const g = globalThis as { liveCodeScope?: unknown[] };
+  try {
+    const { prepared } = await run(
+      "globalThis.liveCodeScope = [this, typeof require, typeof module];",
+      "js",
+    );
+    assertEquals(prepared.format, "esm");
+    assertEquals(g.liveCodeScope, [undefined, "undefined", "undefined"]);
+    await assertRejects(
+      () => run("undeclaredInEsm = 1;", "js"),
+      ReferenceError,
+    );
+  } finally {
+    delete g.liveCodeScope;
   }
 });
 
@@ -243,8 +269,9 @@ Deno.test("CommonJS can use import()", async () => {
   const { prepared, exports } = await run(
     `exports.grammy = import("grammy");`,
     "js",
+    "cjs",
   );
-  assertEquals(prepared.format, "commonjs");
+  assertEquals(prepared.format, "cjs");
   assertEquals((await exports.grammy as typeof web).Bot, web.Bot);
 });
 
@@ -269,12 +296,22 @@ Deno.test("syntax errors have positions", () => {
 });
 
 /** Returns the position where the prepared example throws. */
-async function thrownAt(source: string, language: Language) {
+async function thrownAt(
+  source: string,
+  language: Language,
+  format: Format = "esm",
+) {
   let prepared: Prepared | undefined;
   try {
-    ({ prepared } = await run(source, language));
+    ({ prepared } = await run(source, language, format));
   } catch (err) {
-    prepared ??= prepare(source, language, `example.${language}`, resolver);
+    prepared ??= prepare(
+      source,
+      language,
+      `example.${language}`,
+      resolver,
+      format,
+    );
     // Deno ignores `sourceURL` in data: URLs, which it also shortens.
     const stack = (err as Error).stack?.replace(
       /data:text\/javascript;base64,[\w+/=.]+/g,
@@ -301,10 +338,13 @@ Deno.test("errors point at the displayed source", async () => {
     column: dynamic.indexOf("new Error") + 1,
   });
   // CommonJS runs in a function, which adds lines.
-  assertEquals(await thrownAt(`const a = 1;\n  throw new Error("x");`, "js"), {
-    line: 2,
-    column: 9,
-  });
+  assertEquals(
+    await thrownAt(`const a = 1;\n  throw new Error("x");`, "js", "cjs"),
+    {
+      line: 2,
+      column: 9,
+    },
+  );
 });
 
 Deno.test("resolve accepts grammY specifiers only", () => {

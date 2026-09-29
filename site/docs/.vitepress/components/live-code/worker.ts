@@ -7,6 +7,7 @@
 import * as grammy from "grammy/web";
 import {
   facade,
+  type Format,
   type Language,
   locate,
   modules,
@@ -24,6 +25,7 @@ import {
 export interface ToWorker {
   source: string;
   language: Language;
+  format: Format;
 }
 
 export type FromWorker =
@@ -136,18 +138,18 @@ addEventListener("unhandledrejection", (event) => {
 });
 
 addEventListener("message", async (event) => {
-  const { source, language } = (event as MessageEvent<ToWorker>).data;
+  const { source, language, format } = (event as MessageEvent<ToWorker>).data;
   name = `example.${language}`;
   try {
     await ready;
     await load();
-    prepared = prepare(source, language, name, resolver);
+    prepared = prepare(source, language, name, resolver, format);
   } catch (error) {
     fail(error);
     return;
   }
   try {
-    if (prepared.format === "commonjs") {
+    if (prepared.format === "cjs") {
       const module = { exports: {} };
       prepared.run.call(module.exports, module.exports, require, module);
     } else {

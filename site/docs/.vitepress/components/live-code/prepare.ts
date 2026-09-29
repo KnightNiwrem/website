@@ -3,8 +3,7 @@
 //
 // - TypeScript is an ES module whose types are removed like `tsc` removes them,
 //   including imports that are only used as types.
-// - JavaScript is CommonJS if it compiles as such, and an ES module otherwise,
-//   like a `.js` file without a `"type"` field in Node.js.
+// - The example's author selects CommonJS or ESM explicitly.
 // - ES modules run as native modules. Import specifiers are the only change,
 //   because workers resolve neither bare specifiers nor import maps.
 //
@@ -15,6 +14,7 @@ import { transform } from "sucrase";
 import { GRAMMY_VERSION } from "./version.ts";
 
 export type Language = "ts" | "js";
+export type Format = "esm" | "cjs";
 
 /** 1-based position in a source text */
 export interface Position {
@@ -39,7 +39,7 @@ export type CommonJS = (
 ) => void;
 
 export type Prepared =
-  & ({ format: "commonjs"; run: CommonJS } | { format: "module"; code: string })
+  & ({ format: "cjs"; run: CommonJS } | { format: "esm"; code: string })
   & {
     /** Maps a position in the running code to the displayed source. */
     original(at: Position): Position;
@@ -68,40 +68,31 @@ export function prepare(
   language: Language,
   name: string,
   resolver: Resolver,
+  format: Format = "esm",
 ): Prepared {
   const sourceURL = `\n//# sourceURL=${name}`;
-  if (language === "js") {
-    let commonjs = true;
-    try {
-      compile(source);
-    } catch (err) {
-      if (!(err instanceof SyntaxError)) throw err;
-      // For example `import` or top-level `await`, so it is a module.
-      commonjs = false;
-    }
-    if (commonjs) {
-      // CommonJS can use `import()`.
-      const { code, original } = rewrite(source, resolver, { commonjs: true });
-      return {
-        format: "commonjs",
-        run: compile(code + sourceURL),
-        original: (at) =>
-          original({ line: at.line - FUNCTION_LINES, column: at.column }),
-      };
-    }
-  }
   const stripped = language === "ts" ? strip(source, "ts") : undefined;
   const { code, original } = rewrite(stripped?.code ?? source, resolver, {
+    commonjs: format === "cjs",
     map: stripped?.map,
     source,
     language,
   });
-  return { format: "module", code: code + sourceURL, original };
-}
-
-function compile(body: string): CommonJS {
-  // Like Node.js's module wrapper, but code cannot end the function early.
-  return new Function("exports", "require", "module", body) as CommonJS;
+  if (format === "cjs") {
+    return {
+      format,
+      // Like Node.js's module wrapper, but code cannot end the function early.
+      run: new Function(
+        "exports",
+        "require",
+        "module",
+        code + sourceURL,
+      ) as CommonJS,
+      original: (at) =>
+        original({ line: at.line - FUNCTION_LINES, column: at.column }),
+    };
+  }
+  return { format, code: code + sourceURL, original };
 }
 
 /**

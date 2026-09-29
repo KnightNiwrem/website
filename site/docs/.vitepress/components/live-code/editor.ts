@@ -16,7 +16,6 @@ import { insertText } from "prism-code-editor/utils";
 import layout from "prism-code-editor/layout.css?inline";
 
 export interface Editor {
-  readonly value: string;
   /** Replaces the code as one edit that can be undone. */
   replace(value: string): void;
   /** Undoes (-1) or redoes (1) an edit, if possible. */
@@ -64,17 +63,12 @@ export function mountEditor(parent: HTMLElement, options: {
   );
   const { textarea } = editor;
   textarea.setAttribute("aria-label", options.label);
-  textarea.setAttribute("autocapitalize", "off");
   textarea.setAttribute("autocorrect", "off");
-  textarea.spellcheck = false;
   // Added after the history's listener, which records typed input.
   textarea.addEventListener("input", options.onHistory);
   const wrap = () => editor.setOptions({ wordWrap: narrow.matches });
   narrow.addEventListener("change", wrap);
   return {
-    get value() {
-      return editor.value;
-    },
     replace(value) {
       insertText(editor, value, 0, editor.value.length, 0);
     },

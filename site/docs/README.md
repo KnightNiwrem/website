@@ -46,7 +46,7 @@ Bots are written in [TypeScript](https://www.typescriptlang.org) (or JavaScript)
 
 `npm install grammy` and paste the following code:
 
-<LiveCode>
+<LiveCode js-format="cjs">
 
 ::: code-group
 

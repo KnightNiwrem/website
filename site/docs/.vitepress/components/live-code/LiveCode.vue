@@ -3,10 +3,15 @@
 // tabs are alternatives, so Run only runs the active tab.
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
 import type { Editor } from "./editor.ts";
-import type { Language } from "./prepare.ts";
+import type { Format, Language } from "./prepare.ts";
 import type { FromWorker, ToWorker } from "./worker.ts";
 import { GRAMMY_VERSION } from "./version.ts";
 import css from "./LiveCode.scss?inline";
+
+const props = withDefaults(defineProps<{
+  /** Module format of JavaScript fences. TypeScript always runs as ESM. */
+  jsFormat?: Format;
+}>(), { jsFormat: "esm" });
 
 interface Block {
   el: HTMLElement;
@@ -49,10 +54,8 @@ const stale = computed(() =>
 
 function languageOf(className: string): Language | undefined {
   const name = /(?:^|\s)language-(\w+)/.exec(className)?.[1];
-  if (name === "ts" || name === "typescript" || name === "mts") return "ts";
-  if (
-    name === "js" || name === "javascript" || name === "mjs" || name === "cjs"
-  ) return "js";
+  if (name === "ts" || name === "typescript") return "ts";
+  if (name === "js" || name === "javascript") return "js";
   return undefined;
 }
 
@@ -186,7 +189,11 @@ function run() {
     event.preventDefault();
     end(`The example could not be started: ${event.message}`);
   };
-  current.postMessage({ source, language: block.language } satisfies ToWorker);
+  current.postMessage({
+    source,
+    language: block.language,
+    format: block.language === "js" ? props.jsFormat : "esm",
+  } satisfies ToWorker);
 }
 </script>
 
@@ -220,10 +227,8 @@ function run() {
           Telegram directly. Put the token of a test bot between the quotes in
           <code>new Bot("")</code>; the Copy button then copies it, too. The
           code can read the token, and <code>bot.start()</code> deletes the
-          bot's webhook. A malformed token looks like a network error to the
-          browser, so grammY keeps retrying without output. On a phone, your
-          browser may pause this page while you are in Telegram; the bot
-          catches up when you come back.
+          bot's webhook. On a phone, your browser may pause this page while
+          you are in Telegram; the bot catches up when you come back.
         </p>
         <div class="live-code-buttons">
           <button type="button" class="live-code-primary live-code-run" @click="run">
