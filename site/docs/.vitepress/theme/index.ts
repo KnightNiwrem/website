@@ -2,6 +2,7 @@ import DefaultTheme from "vitepress/theme-without-fonts";
 import Layout from "./layout/Layout.vue";
 import "./style/index.scss";
 import type { EnhanceAppContext } from "vitepress";
+import { defineAsyncComponent } from "vue";
 
 import ThankYou from "../components/ThankYou.vue";
 import LanguagePopup from "../components/LanguagePopup.vue";
@@ -15,5 +16,12 @@ export default {
     ctx.app.component("ThankYou", ThankYou);
     ctx.app.component("LanguagePopup", LanguagePopup);
     ctx.app.component("NotFound", NotFound);
+    // Loaded only by pages that use it
+    ctx.app.component(
+      "LiveCode",
+      defineAsyncComponent(() =>
+        import("../components/live-code/LiveCode.vue")
+      ),
+    );
   },
 };
